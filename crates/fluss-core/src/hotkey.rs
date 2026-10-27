@@ -253,9 +253,10 @@ mod tests {
 
     #[test]
     fn parse_and_display() {
-        assert_eq!(Hotkey::parse("ctrl+win").unwrap().to_string(), "Ctrl+Win");
-        assert_eq!(Hotkey::parse("Win + Ctrl + space").unwrap().to_string(), "Ctrl+Win+Space");
-        assert_eq!(Hotkey::parse("cmd+ctrl").unwrap().to_string(), "Ctrl+Win");
+        let m = if cfg!(target_os = "macos") { "Cmd" } else { "Win" };
+        assert_eq!(Hotkey::parse("ctrl+win").unwrap().to_string(), format!("Ctrl+{m}"));
+        assert_eq!(Hotkey::parse("Win + Ctrl + space").unwrap().to_string(), format!("Ctrl+{m}+Space"));
+        assert_eq!(Hotkey::parse("cmd+ctrl").unwrap().to_string(), format!("Ctrl+{m}"));
         assert_eq!(Hotkey::parse("f9").unwrap().to_string(), "F9");
         assert_eq!(Hotkey::parse("RightAlt").unwrap().key, Some(Key::RightAlt));
         assert_eq!(Hotkey::parse("Ctrl+Shift+r").unwrap().key, Some(Key::Char('R')));

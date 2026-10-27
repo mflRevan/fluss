@@ -477,7 +477,8 @@ mod tests {
         let s = toml::to_string_pretty(&c).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
         assert_eq!(c, back);
-        assert!(s.contains("push_to_talk = \"Ctrl+Win\""));
+        let m = if cfg!(target_os = "macos") { "Cmd" } else { "Win" };
+        assert!(s.contains(&format!("push_to_talk = \"Ctrl+{m}\"")));
     }
 
     #[test]
