@@ -108,6 +108,7 @@ struct Session {
     text: String,
     raw: String,
     app: String,
+    error: Option<String>,
 }
 
 impl Session {
@@ -677,6 +678,7 @@ impl App {
             text: String::new(),
             raw: String::new(),
             app: ctx.app.clone(),
+            error: None,
         });
         log::debug!("session {id} started ({mode:?}, {pre} samples pre-roll)");
         hotkeys::ACTIVE.store(true, Ordering::Relaxed);
@@ -745,7 +747,7 @@ impl App {
             self.overlay.hide();
         } else {
             sounds::play(Sound::Cancel, &self.cfg.general);
-            self.overlay.notice("Cancelled", false);
+            self.overlay.flash("Cancelled", false);
         }
         self.after_session();
         self.publish();
@@ -785,7 +787,10 @@ impl App {
         } else if s.add_rule_after {
             self.overlay.hide();
         } else {
-            self.overlay.notice("No speech detected", false);
+            match &s.error {
+                Some(e) => self.overlay.flash(e, true),
+                None => self.overlay.flash("No speech detected", false),
+            }
         }
         log::debug!("session {} finished: {:?}", s.id, s.text);
         if s.add_rule_after {
@@ -1007,6 +1012,9 @@ impl App {
                     let msg = format!("Transcription failed: {}", e.lines().next().unwrap_or(""));
                     self.overlay.notice(&msg, true);
                     self.notice("error", &msg);
+                    if let Some(s) = self.session.as_mut() {
+                        s.error = Some(msg);
+                    }
                     continue;
                 }
             };

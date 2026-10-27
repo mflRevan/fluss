@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Range slider that only commits on release (no setting spam while dragging).
+  // Precision slider: hairline track with a scale, diamond thumb, mono readout.
+  // Commits on release only (no setting spam while dragging).
   let {
     value,
     min = 0,
@@ -8,7 +9,7 @@
     unit = "",
     format,
     onchange,
-    width = 220,
+    width = 200,
   }: {
     value: number;
     min?: number;
@@ -29,24 +30,24 @@
   const label = $derived(format ? format(local) : `${local}${unit}`);
 </script>
 
-<div class="slider" style="width:{width}px">
+<div class="slider" style="--w:{width}px">
   <div class="rail">
-  <div class="track">
+    <div class="scale"></div>
+    <div class="track"></div>
     <div class="fill" style="width:{pct}%"></div>
-  </div>
-  <input
-    type="range"
-    {min}
-    {max}
-    {step}
-    bind:value={local}
-    oninput={() => (dragging = true)}
-    onchange={() => {
-      dragging = false;
-      onchange?.(Number(local));
-    }}
-  />
-  <div class="thumb" class:active={dragging} style="left:calc({pct}% - {(pct / 100) * 18}px)"></div>
+    <input
+      type="range"
+      {min}
+      {max}
+      {step}
+      bind:value={local}
+      oninput={() => (dragging = true)}
+      onchange={() => {
+        dragging = false;
+        onchange?.(Number(local));
+      }}
+    />
+    <div class="thumb" class:active={dragging} style="left:{pct}%"></div>
   </div>
   <span class="value">{label}</span>
 </div>
@@ -55,64 +56,73 @@
   .slider {
     display: flex;
     align-items: center;
-    gap: 10px;
-    height: 28px;
+    gap: 14px;
+    width: var(--w);
+    height: 26px;
   }
   .rail {
     position: relative;
     flex: 1;
-    height: 28px;
-    display: flex;
-    align-items: center;
+    height: 26px;
+  }
+  .scale {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 17px;
+    height: 4px;
+    background: repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 10%);
+    border-right: 1px solid var(--rule);
   }
   .track {
-    width: 100%;
-    height: 6px;
-    border-radius: 6px;
-    background: var(--surface-3);
-    overflow: hidden;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 12px;
+    height: 1px;
+    background: var(--rule-strong);
   }
   .fill {
-    height: 100%;
-    background: var(--flow);
-    border-radius: 6px;
+    position: absolute;
+    left: 0;
+    top: 12px;
+    height: 1px;
+    background: var(--gold);
   }
   input {
     position: absolute;
     inset: 0;
     width: 100%;
-    height: 28px;
     margin: 0;
     opacity: 0;
     cursor: pointer;
   }
   .thumb {
     position: absolute;
-    top: 5px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    top: 7.5px;
+    width: 10px;
+    height: 10px;
+    translate: -50% 0;
+    rotate: 45deg;
+    background: var(--void);
+    border: 1px solid var(--gold);
     pointer-events: none;
-    transition: box-shadow var(--t-fast), transform 200ms var(--spring);
+    transition: background var(--t1) var(--q), scale var(--t1) var(--q);
   }
-  .slider:hover .thumb,
+  .rail:hover .thumb,
   .thumb.active {
-    box-shadow:
-      0 2px 8px rgba(0, 0, 0, 0.35),
-      0 0 0 5px rgba(45, 212, 191, 0.22);
+    background: var(--gold);
   }
   .thumb.active {
-    transform: scale(1.12);
+    scale: 1.2;
   }
   .value {
     flex: none;
-    min-width: 58px;
+    min-width: 62px;
     text-align: right;
+    font-family: var(--mono);
+    font-size: 11.5px;
     font-variant-numeric: tabular-nums;
-    font-size: 12.5px;
-    color: var(--text-2);
-    font-weight: 550;
+    color: var(--gold);
   }
 </style>

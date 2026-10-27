@@ -1,10 +1,9 @@
 <script lang="ts">
   // Records a shortcut through the daemon (it sees Win/Cmd and global keys the
   // webview can't), then writes it to the config.
-  import { fade, scale } from "svelte/transition";
+  import { fade } from "svelte/transition";
   import { call } from "../backend";
   import { setCfg, toast } from "../state.svelte";
-  import Icon from "./Icon.svelte";
   import Keys from "./Keys.svelte";
 
   let { path, value }: { path: string; value: string } = $props();
@@ -40,14 +39,14 @@
 
 <div class="rec" class:recording class:flash>
   {#if recording}
-    <span class="listening" in:fade={{ duration: 120 }}>
-      <span class="dots"><i></i><i></i><i></i></span>
-      Press your shortcut…
+    <span class="listening" in:fade={{ duration: 90 }}>
+      <span class="caret"></span>
+      Press your shortcut
     </span>
     <button class="btn ghost sm" onclick={cancel}>Cancel</button>
   {:else}
-    <span in:scale={{ start: 0.9, duration: 200 }}><Keys combo={value} pressed={flash} /></span>
-    <button class="btn sm" onclick={record}><Icon name="keyboard" size={14} />Change</button>
+    <span in:fade={{ duration: 120 }}><Keys combo={value} pressed={flash} /></span>
+    <button class="btn sm" onclick={record}>Change</button>
   {/if}
 </div>
 
@@ -55,52 +54,35 @@
   .rec {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 40px;
-    padding: 4px 4px 4px 10px;
-    border-radius: 12px;
-    border: 1px dashed transparent;
-    transition: border-color var(--t-med), background var(--t-med);
+    gap: 12px;
+    min-height: 34px;
+    padding: 0 0 0 10px;
+    border-left: 1px solid transparent;
+    transition: border-color var(--t1) var(--q);
   }
   .rec.recording {
-    border-color: rgba(45, 212, 191, 0.5);
-    background: rgba(45, 212, 191, 0.07);
+    border-left-color: var(--gold);
   }
   .listening {
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 13px;
-    color: var(--accent-text);
-    font-weight: 560;
+    gap: 9px;
     min-width: 170px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold);
   }
-  .dots {
-    display: flex;
-    gap: 3px;
+  .caret {
+    width: 7px;
+    height: 13px;
+    background: var(--gold);
+    animation: blink 0.9s steps(1) infinite;
   }
-  .dots i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-    animation: d 1s ease-in-out infinite;
-  }
-  .dots i:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-  .dots i:nth-child(3) {
-    animation-delay: 0.3s;
-  }
-  @keyframes d {
+  @keyframes blink {
     50% {
-      transform: translateY(-4px);
-      opacity: 0.5;
+      opacity: 0;
     }
-  }
-  .sm {
-    height: 30px;
-    padding: 0 10px;
-    font-size: 12.5px;
   }
 </style>

@@ -117,10 +117,7 @@ export async function refresh() {
   }
 }
 
-/** Resolved theme for the document. */
+/** Fluss is dark-only; this just applies the motion preference. */
 export function applyTheme() {
-  const t = app.config?.ui.theme ?? "system";
-  const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
   document.documentElement.dataset.motion = app.config?.ui.reduce_motion ? "reduced" : "full";
 }

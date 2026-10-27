@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fade, fly } from "svelte/transition";
-  import { inTauri, onEvent } from "./lib/backend";
+  import { inTauri } from "./lib/backend";
+  import Iris from "./lib/components/Iris.svelte";
   import Sidebar from "./lib/components/Sidebar.svelte";
   import TitleBar from "./lib/components/TitleBar.svelte";
   import Toasts from "./lib/components/Toasts.svelte";
@@ -23,7 +24,6 @@
   const onboarding = $derived(forceOnboarding || (app.config ? !app.config.general.onboarded : false));
 
   $effect(() => {
-    app.config?.ui.theme;
     app.config?.ui.reduce_motion;
     applyTheme();
   });
@@ -32,8 +32,6 @@
     startState();
     const p = new URLSearchParams(location.search).get("page") as Page | null;
     if (p && p in pages) app.page = p;
-    const mq = matchMedia("(prefers-color-scheme: dark)");
-    mq.addEventListener("change", applyTheme);
     applyTheme();
     // The native side asks us to switch pages when launched with --page.
     let un: (() => void) | undefined;
@@ -43,12 +41,10 @@
           if (e.payload in pages) app.page = e.payload as Page;
         }).then((u) => (un = u)),
       );
-      import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().show());
+      // Show only after the fonts are in, so the first frame is the real one.
+      document.fonts.ready.then(() => import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().show()));
     }
-    return () => {
-      un?.();
-      mq.removeEventListener("change", applyTheme);
-    };
+    return () => un?.();
   });
 
   const Current = $derived(pages[app.page]);
@@ -57,9 +53,9 @@
 <div class="shell">
   <TitleBar />
   {#if !app.config}
-    <div class="boot" in:fade>
-      <div class="pulse"></div>
-      <div class="muted">{app.connected ? "Loading…" : "Starting Fluss…"}</div>
+    <div class="boot" in:fade={{ duration: 140 }}>
+      <Iris size={120} ticks={60} mode="loading" />
+      <div class="label">{app.connected ? "Loading" : "Starting Fluss"}</div>
     </div>
   {:else if onboarding}
     <Onboarding onfinish={() => (forceOnboarding = false)} />
@@ -67,14 +63,14 @@
     <Sidebar />
     <main class="content">
       {#key app.page}
-        <div class="page" in:fly={{ y: 10, duration: 280, delay: 60 }} out:fade={{ duration: 90 }}>
+        <div class="page" in:fly={{ y: 4, duration: 140, easing: (t) => 1 - Math.pow(1 - t, 3) }} out:fade={{ duration: 50 }}>
           <Current />
         </div>
       {/key}
     </main>
   {/if}
   {#if !app.connected && app.config}
-    <div class="offline" transition:fly={{ y: -10 }}>Reconnecting to Fluss…</div>
+    <div class="offline label" transition:fade={{ duration: 120 }}>◆ Reconnecting to Fluss</div>
   {/if}
   <Toasts />
 </div>
@@ -84,10 +80,7 @@
     position: relative;
     display: flex;
     height: 100%;
-    background:
-      radial-gradient(1200px 600px at 110% -10%, rgba(139, 124, 246, 0.09), transparent 60%),
-      radial-gradient(900px 500px at -10% 110%, rgba(20, 184, 166, 0.08), transparent 60%),
-      var(--bg);
+    background: var(--void);
   }
   .content {
     flex: 1;
@@ -97,41 +90,33 @@
   }
   .page {
     grid-area: 1 / 1;
-    overflow-y: auto;
-    padding: 44px 40px 40px;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 40px 48px 32px;
+    overflow: hidden;
+  }
+  /* Very large windows: keep line lengths and column widths sane. */
+  .page > :global(*) {
+    width: 100%;
+    max-width: 1280px;
   }
   .boot {
     flex: 1;
     display: grid;
     place-content: center;
     justify-items: center;
-    gap: 16px;
-  }
-  .pulse {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: var(--flow);
-    animation: b 1.4s ease-in-out infinite;
-  }
-  @keyframes b {
-    50% {
-      transform: scale(0.8);
-      opacity: 0.6;
-    }
+    gap: 18px;
   }
   .offline {
     position: absolute;
-    top: 46px;
+    top: 8px;
     left: 50%;
-    transform: translateX(-50%);
-    padding: 6px 14px;
-    border-radius: 999px;
-    background: rgba(251, 191, 36, 0.14);
-    border: 1px solid rgba(251, 191, 36, 0.35);
-    color: var(--amber);
-    font-size: 12.5px;
+    translate: -50% 0;
+    padding: 6px 12px;
+    border: 1px solid var(--gold-dim);
+    background: var(--void);
+    color: var(--gold);
     z-index: 60;
   }
 </style>

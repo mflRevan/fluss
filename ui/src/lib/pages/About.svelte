@@ -1,83 +1,96 @@
 <script lang="ts">
   import { invoke } from "../backend";
-  import FlowField from "../components/FlowField.svelte";
-  import Icon from "../components/Icon.svelte";
-  import Logo from "../components/Logo.svelte";
+  import Iris from "../components/Iris.svelte";
   import { app } from "../state.svelte";
 
   const open = (url: string) => invoke("open_path", { path: url });
 </script>
 
-<div class="about card">
-  <FlowField energy={0.2} opacity={0.8} />
-  <div class="in">
-    <Logo size={72} />
-    <h1>Fluss</h1>
-    <p class="muted">Speak, and it flows into any app. Local, fast, private.</p>
-    <span class="badge">Version {app.status?.version ?? "—"}</span>
-    <button class="btn" onclick={() => open("https://github.com/mflRevan/fluss")}><Icon name="link" size={15} />github.com/mflRevan/fluss</button>
+<div class="about">
+  <div class="hero">
+    <div class="txt">
+      <div class="label"><b>09</b> — About</div>
+      <h1 class="display">Fluss</h1>
+      <p class="tag">Speak, and it flows into any app.<br />Local, fast, private.</p>
+      <div class="meta mono">
+        <span>v{app.status?.version ?? "—"}</span>
+        <span>MIT</span>
+        <span>German for “river”</span>
+      </div>
+      <button class="btn" onclick={() => open("https://github.com/mflRevan/fluss")}>github.com/mflRevan/fluss ↗</button>
+    </div>
+    <Iris size={250} />
+  </div>
+
+  <div class="credits">
+    <div class="label">Credits</div>
+    <dl>
+      <dt>Phonon 2.5</dt>
+      <dd>Fermion Research · weights CC-BY-4.0 · runtime Apache-2.0</dd>
+      <dt>Parakeet TDT 0.6B v3</dt>
+      <dd>NVIDIA · CC-BY-4.0 · ONNX export by istupakov</dd>
+      <dt>Licht Serif</dt>
+      <dd>zon.sh/licht · used with permission</dd>
+      <dt>Geist, Geist Mono</dt>
+      <dd>Vercel · SIL Open Font License</dd>
+    </dl>
   </div>
 </div>
-
-<div class="section-title">Speech models</div>
-<div class="card credits">
-  <div class="cr">
-    <b>Phonon 2.5</b>
-    <span class="muted">by Fermion Research · weights under CC-BY-4.0, runtime under Apache-2.0</span>
-  </div>
-  <div class="cr">
-    <b>Parakeet TDT 0.6B v3</b>
-    <span class="muted">by NVIDIA · CC-BY-4.0 · ONNX export by istupakov</span>
-  </div>
-  <div class="cr">
-    <b>Inter</b>
-    <span class="muted">typeface by Rasmus Andersson · SIL Open Font License</span>
-  </div>
-</div>
-
-<p class="faint foot">Fluss is open source under the MIT license. “Fluss” is German for river.</p>
 
 <style>
   .about {
-    position: relative;
-    overflow: hidden;
-    border-radius: 22px;
-    min-height: 300px;
-    display: grid;
-    place-items: center;
-  }
-  .in {
-    position: relative;
-    display: grid;
-    justify-items: center;
-    gap: 10px;
-    text-align: center;
-    padding: 32px;
-  }
-  h1 {
-    font-size: 40px;
-    font-weight: 750;
-    letter-spacing: -0.045em;
-  }
-  p {
-    margin: 0;
-  }
-  .credits {
-    padding: 4px 18px;
-  }
-  .cr {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--border);
-    gap: 2px;
+    justify-content: space-between;
+    min-height: 0;
   }
-  .cr:last-child {
-    border-bottom: 0;
+  .hero {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 40px;
+    padding-bottom: 12px;
   }
-  .foot {
-    text-align: center;
-    font-size: 12px;
-    margin-top: 24px;
+  h1 {
+    font-size: 104px;
+    margin-top: 14px;
+    line-height: 0.95;
+  }
+  .tag {
+    margin-top: 16px;
+    font-size: 15px;
+    color: var(--text-2);
+  }
+  .meta {
+    display: flex;
+    gap: 18px;
+    margin: 22px 0 20px;
+    font-size: 11px;
+    color: var(--gold-dim);
+    letter-spacing: 0.06em;
+  }
+  .credits {
+    padding-top: 18px;
+  }
+  dl {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    margin: 12px 0 0;
+  }
+  dt,
+  dd {
+    margin: 0;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 13px;
+  }
+  dd {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    display: flex;
+    align-items: center;
   }
 </style>

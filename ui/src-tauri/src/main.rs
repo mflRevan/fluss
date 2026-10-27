@@ -127,12 +127,12 @@ fn main_window(app: &AppHandle, page: Option<&str>) -> Option<WebviewWindow> {
     };
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App(url.into()))
         .title("Fluss")
-        .inner_size(1080.0, 720.0)
-        .min_inner_size(880.0, 600.0)
+        .inner_size(1200.0, 760.0)
+        .min_inner_size(1120.0, 720.0)
         .decorations(false)
         .center()
         .visible(false) // the page shows itself once rendered (no white flash)
-        .background_color(tauri::webview::Color(7, 11, 16, 255))
+        .background_color(tauri::webview::Color(0, 0, 0, 255))
         .build()
         .ok()
 }

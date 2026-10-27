@@ -26,7 +26,7 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 38px;
+    height: 36px;
     display: flex;
     z-index: 40;
   }
@@ -37,21 +37,21 @@
     display: flex;
   }
   button {
-    width: 46px;
-    height: 38px;
+    width: 44px;
+    height: 34px;
     display: grid;
     place-items: center;
     border: 0;
     background: transparent;
-    color: var(--text-2);
-    transition: background var(--t-fast), color var(--t-fast);
+    color: var(--text-3);
+    transition: background var(--t1), color var(--t1);
   }
   button:hover {
-    background: var(--surface-2);
-    color: var(--text);
+    background: var(--plate-2);
+    color: var(--gold);
   }
   .close:hover {
-    background: #e81123;
+    background: var(--danger);
     color: #fff;
   }
 </style>

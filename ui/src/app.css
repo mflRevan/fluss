@@ -1,80 +1,85 @@
-/* Fluss design tokens. Dark is the reference theme; light mirrors it. */
+/* Fluss — black and gold. See docs/DESIGN.md. */
+
+@font-face {
+  font-family: "Licht Serif";
+  src: url(/fonts/licht/LichtSerif-Light.woff2) format("woff2");
+  font-weight: 300;
+  font-display: block;
+}
+@font-face {
+  font-family: "Licht Serif";
+  src: url(/fonts/licht/LichtSerif-Regular.woff2) format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Licht Serif";
+  src: url(/fonts/licht/LichtSerif-Medium.woff2) format("woff2");
+  font-weight: 500;
+  font-display: block;
+}
+@font-face {
+  font-family: "Geist";
+  src: url(/fonts/geist/Geist-Light.woff2) format("woff2");
+  font-weight: 300;
+  font-display: block;
+}
+@font-face {
+  font-family: "Geist";
+  src: url(/fonts/geist/Geist-Regular.woff2) format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Geist";
+  src: url(/fonts/geist/Geist-Medium.woff2) format("woff2");
+  font-weight: 500;
+  font-display: block;
+}
+@font-face {
+  font-family: "Geist";
+  src: url(/fonts/geist/Geist-SemiBold.woff2) format("woff2");
+  font-weight: 600;
+  font-display: block;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url(/fonts/geist/GeistMono-Regular.woff2) format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url(/fonts/geist/GeistMono-Medium.woff2) format("woff2");
+  font-weight: 500;
+  font-display: block;
+}
 
 :root {
-  --font: "Inter Variable", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --mono: "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
-
-  --teal: #14b8a6;
-  --cyan: #22d3ee;
-  --sky: #38bdf8;
-  --violet: #a78bfa;
-  --rose: #fb7185;
-  --amber: #fbbf24;
-  --green: #34d399;
-
-  --flow: linear-gradient(120deg, #0fb5a4 0%, #22d3ee 45%, #8b7cf6 100%);
-  --flow-soft: linear-gradient(120deg, rgba(20, 184, 166, 0.16), rgba(34, 211, 238, 0.12) 45%, rgba(139, 124, 246, 0.16));
-
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
-  --r-xl: 22px;
-
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --t-fast: 140ms;
-  --t-med: 260ms;
-}
-
-:root,
-:root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #070b10;
-  --bg-2: #0b1118;
-  --surface: rgba(255, 255, 255, 0.035);
-  --surface-2: rgba(255, 255, 255, 0.06);
-  --surface-3: rgba(255, 255, 255, 0.09);
-  --surface-solid: #0f161e;
-  --border: rgba(255, 255, 255, 0.075);
-  --border-2: rgba(255, 255, 255, 0.13);
-  --text: #e8eef3;
-  --text-2: #a3b1bd;
-  --text-3: #6b7a87;
-  --accent: #2dd4bf;
-  --accent-ink: #04211e;
-  --accent-text: #5eead4;
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 40px -12px rgba(0, 0, 0, 0.6);
-  --shadow-pop: 0 30px 80px -20px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --glow: 0 0 0 1px rgba(45, 212, 191, 0.35), 0 0 24px -4px rgba(45, 212, 191, 0.45);
-  --sidebar: rgba(10, 16, 22, 0.72);
-  --scrim: rgba(3, 6, 10, 0.6);
-  --key-top: #1b2530;
-  --key-side: #0b1117;
-}
+  --display: "Licht Serif", Georgia, serif;
+  --font: "Geist", "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono", "Cascadia Mono", ui-monospace, monospace;
 
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f3f6f8;
-  --bg-2: #eaf0f3;
-  --surface: rgba(255, 255, 255, 0.72);
-  --surface-2: rgba(255, 255, 255, 0.92);
-  --surface-3: #ffffff;
-  --surface-solid: #ffffff;
-  --border: rgba(12, 32, 48, 0.08);
-  --border-2: rgba(12, 32, 48, 0.15);
-  --text: #0d1b26;
-  --text-2: #4a5d6c;
-  --text-3: #8293a1;
-  --accent: #0d9488;
-  --accent-ink: #ffffff;
-  --accent-text: #0f766e;
-  --shadow: 0 1px 2px rgba(12, 32, 48, 0.05), 0 10px 30px -14px rgba(12, 32, 48, 0.18);
-  --shadow-pop: 0 30px 80px -20px rgba(12, 32, 48, 0.35), 0 0 0 1px rgba(12, 32, 48, 0.08);
-  --glow: 0 0 0 1px rgba(13, 148, 136, 0.35), 0 0 22px -6px rgba(13, 148, 136, 0.45);
-  --sidebar: rgba(255, 255, 255, 0.6);
-  --scrim: rgba(230, 238, 243, 0.65);
-  --key-top: #ffffff;
-  --key-side: #cfd9e0;
+  --void: #000000;
+  --plate: #0b0a08;
+  --plate-2: #12100c;
+  --rule: #2a2418;
+  --rule-strong: #4a3f27;
+  --gold: #e3b04b;
+  --gold-dim: #8c6b2a;
+  --gold-ink: #1a1408;
+  --gold-wash: rgba(227, 176, 75, 0.1);
+  --text: #ede6d6;
+  --text-2: #9a9284;
+  --text-3: #5e584d;
+  --danger: #e5484d;
+
+  --q: cubic-bezier(0.2, 0.9, 0.1, 1);
+  --t1: 90ms;
+  --t2: 140ms;
+  --t3: 220ms;
+  --cut: 8px;
 }
 
 * {
@@ -85,13 +90,12 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: var(--bg);
+  background: var(--void);
   color: var(--text);
   font-family: var(--font);
   font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: "cv11", "ss01", "ss03";
   overflow: hidden;
   user-select: none;
 }
@@ -123,24 +127,25 @@ textarea {
 }
 
 ::selection {
-  background: rgba(45, 212, 191, 0.35);
+  background: var(--gold);
+  color: var(--gold-ink);
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 1px solid var(--gold);
   outline-offset: 2px;
-  border-radius: 6px;
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-3);
-  border-radius: 10px;
-  border: 3px solid transparent;
-  background-clip: padding-box;
+  background: var(--rule);
+  border: 3px solid var(--void);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--rule-strong);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -150,136 +155,193 @@ h1,
 h2,
 h3 {
   margin: 0;
-  letter-spacing: -0.02em;
-  font-weight: 650;
+  font-weight: 400;
+}
+
+p {
+  margin: 0;
+}
+
+.display {
+  font-family: var(--display);
+  font-weight: 300;
+  letter-spacing: -0.012em;
+  line-height: 1.04;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Section label: `01 — MODEL` */
+.label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.label b {
+  color: var(--gold-dim);
+  font-weight: 400;
 }
 
 .muted {
   color: var(--text-2);
 }
-
 .faint {
   color: var(--text-3);
 }
-
-.gradient-text {
-  background: var(--flow);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.gold {
+  color: var(--gold);
 }
+
+/* Chamfered outline plate: background is the outline, ::before the fill. */
+.cut {
+  --c: var(--cut);
+  clip-path: polygon(var(--c) 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%, 0 var(--c));
+}
+
+/* ---------------------------------------------------------------- buttons */
 
 .btn {
+  --c: 6px;
+  --edge: var(--rule-strong);
+  --fill: var(--void);
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   height: 34px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border-2);
-  background: var(--surface-2);
-  font-weight: 550;
-  font-size: 13px;
-  transition:
-    background var(--t-fast),
-    transform var(--t-fast) var(--ease),
-    border-color var(--t-fast),
-    box-shadow var(--t-fast);
+  padding: 0 16px;
+  border: 0;
+  background: var(--edge);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   white-space: nowrap;
+  clip-path: polygon(var(--c) 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%, 0 var(--c));
+  transition:
+    background var(--t1) var(--q),
+    color var(--t1) var(--q);
+}
+.btn::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  background: var(--fill);
+  clip-path: polygon(calc(var(--c) - 0.6px) 0, 100% 0, 100% calc(100% - var(--c) + 0.6px), calc(100% - var(--c) + 0.6px) 100%, 0 100%, 0 calc(var(--c) - 0.6px));
+  transition: background var(--t1) var(--q);
 }
 .btn:hover {
-  background: var(--surface-3);
-  border-color: var(--border-2);
+  --edge: var(--gold-dim);
+  color: var(--gold);
 }
 .btn:active {
-  transform: scale(0.97);
+  --fill: var(--plate-2);
 }
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: default;
-  transform: none;
 }
 .btn.primary {
-  background: var(--flow);
-  border-color: transparent;
-  color: #031615;
-  box-shadow: 0 6px 20px -8px rgba(34, 211, 238, 0.6);
+  --edge: var(--gold);
+  --fill: var(--gold);
+  color: var(--gold-ink);
 }
 .btn.primary:hover {
-  filter: brightness(1.08);
+  --fill: #f0c262;
+  --edge: #f0c262;
+  color: var(--gold-ink);
 }
 .btn.ghost {
-  background: transparent;
-  border-color: transparent;
+  --edge: transparent;
 }
 .btn.ghost:hover {
-  background: var(--surface-2);
+  --edge: var(--rule);
 }
-.btn.danger {
-  color: var(--rose);
+.btn.danger:hover,
+.btn.danger.armed {
+  --edge: var(--danger);
+  color: var(--danger);
 }
 .btn.lg {
   height: 42px;
-  padding: 0 20px;
-  font-size: 14px;
-  border-radius: 12px;
+  padding: 0 22px;
+  font-size: 11.5px;
+}
+.btn.sm {
+  height: 28px;
+  padding: 0 11px;
+  font-size: 10.5px;
+}
+.btn.icon {
+  width: 30px;
+  padding: 0;
 }
 
+/* ---------------------------------------------------------------- inputs */
+
 .input {
-  height: 36px;
+  height: 38px;
   width: 100%;
   padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border-2);
-  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--plate);
   outline: none;
-  transition:
-    border-color var(--t-fast),
-    box-shadow var(--t-fast),
-    background var(--t-fast);
+  transition: border-color var(--t1) var(--q);
+}
+.input:hover {
+  border-color: var(--rule-strong);
 }
 .input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.18);
-  background: var(--surface-2);
+  border-color: var(--gold);
 }
 .input::placeholder {
   color: var(--text-3);
 }
 
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow);
+kbd {
+  font-family: var(--mono);
 }
 
-.section-title {
-  font-size: 11.5px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-3);
-  margin: 26px 0 10px 2px;
+/* ---------------------------------------------------------------- layout helpers */
+
+.hair {
+  height: 1px;
+  background: var(--rule);
 }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--text-2);
+/* Two-column settings layout used by dense pages. */
+.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 48px;
+  min-height: 0;
 }
-.badge.accent {
-  background: rgba(45, 212, 191, 0.12);
-  border-color: rgba(45, 212, 191, 0.3);
-  color: var(--accent-text);
+.col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.group + .group {
+  margin-top: 26px;
+}
+.group > .label {
+  display: block;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
 }
 
 [data-motion="reduced"] *,

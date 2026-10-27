@@ -55,6 +55,12 @@ impl Overlay {
     pub fn notice(&self, t: &str, error: bool) {
         let _ = self.tx.send(Msg::Notice(t.to_string(), error));
     }
+    /// End of a session with a message: the notice shows briefly, then the overlay
+    /// fades out (it must not fall back to the session's last state).
+    pub fn flash(&self, t: &str, error: bool) {
+        let _ = self.tx.send(Msg::State(OvState::Hidden));
+        let _ = self.tx.send(Msg::Notice(t.to_string(), error));
+    }
     pub fn configure(&self, ui: &Ui) {
         let _ = self.tx.send(Msg::Configure(ui.clone()));
     }
@@ -173,7 +179,7 @@ fn run(rx: Receiver<Msg>, level: Level) {
         a.levels.push(prev + (norm - prev) * 0.55);
 
         let target_appear = if a.visible_target() { 1.0 } else { 0.0 };
-        let speed = if target_appear > a.appear { 7.5 } else { 9.0 };
+        let speed = if target_appear > a.appear { 8.5 } else { 11.0 };
         a.appear = if a.ui.reduce_motion {
             target_appear
         } else if target_appear > a.appear {
@@ -191,7 +197,7 @@ fn run(rx: Receiver<Msg>, level: Level) {
             None => String::new(),
         };
         let target_w = render::content_width(&mut fonts, kind, &text, hint(a.state));
-        a.width = if a.ui.reduce_motion || a.appear < 0.05 { target_w } else { a.width + (target_w - a.width) * (1.0 - (-dt * 16.0).exp()) };
+        a.width = if a.ui.reduce_motion || a.appear < 0.05 { target_w } else { a.width + (target_w - a.width) * (1.0 - (-dt * 26.0).exp()) };
         if a.appear <= 0.0 {
             win.hide();
             continue;
@@ -199,7 +205,6 @@ fn run(rx: Receiver<Msg>, level: Level) {
         let scene = Scene {
             kind,
             text: &text,
-            hint: hint(a.state),
             t: a.t0.elapsed().as_secs_f32(),
             levels: &a.levels,
             appear: a.appear,
@@ -230,10 +235,14 @@ pub fn render_gallery(dir: &std::path::Path) -> anyhow::Result<()> {
         for (name, kind, text) in &cases {
             let w = render::content_width(&mut fonts, *kind, text, if *kind == Kind::HandsFree { "Hands-free" } else { "" });
             let mut pm = tiny_skia::Pixmap::new((render::CANVAS_W * scale) as u32, (render::CANVAS_H * scale) as u32).unwrap();
-            // Desktop-ish backdrop so the glass reads like it will on screen.
-            pm.fill(tiny_skia::Color::from_rgba8(236, 239, 244, 255));
+            // A desktop-ish backdrop: half light, half dark, to check contrast on both.
+            pm.fill(tiny_skia::Color::from_rgba8(232, 230, 226, 255));
+            let half = tiny_skia::Rect::from_xywh(pm.width() as f32 / 2.0, 0.0, pm.width() as f32 / 2.0, pm.height() as f32).unwrap();
+            let mut dark = tiny_skia::Paint::default();
+            dark.set_color_rgba8(30, 30, 32, 255);
+            pm.fill_rect(half, &dark, tiny_skia::Transform::identity(), None);
             let mut fg = tiny_skia::Pixmap::new(pm.width(), pm.height()).unwrap();
-            let sc = Scene { kind: *kind, text, hint: if *kind == Kind::HandsFree { "Hands-free" } else { "" }, t: 0.35, levels: &levels, appear: 1.0, width: w, scale, reduce_motion: false };
+            let sc = Scene { kind: *kind, text, t: 0.35, levels: &levels, appear: 1.0, width: w, scale, reduce_motion: false };
             render::draw(&mut fg, &mut fonts, &sc);
             pm.draw_pixmap(0, 0, fg.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
             pm.save_png(dir.join(format!("{name}@{scale}x.png")))?;

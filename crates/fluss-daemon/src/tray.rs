@@ -54,62 +54,44 @@ fn look(st: &Status) -> Look {
     }
 }
 
-/// 32x32 RGBA: a flowing wave mark with a status dot.
+/// 32x32 RGBA: a small iris (radial ticks around a diamond) in gold.
+/// Idle: dim ring. Live: full bright ring. Busy: half ring lit. Problem: red core.
 fn icon_rgba(l: Look) -> Vec<u8> {
     use tiny_skia::*;
+    const GOLD: (u8, u8, u8) = (227, 176, 75);
+    const DIM: (u8, u8, u8) = (140, 107, 42);
     let mut pm = Pixmap::new(32, 32).unwrap();
+    let (cx, cy) = (16.0f32, 16.0f32);
+    let n = 16;
+    for i in 0..n {
+        let a = -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::TAU / n as f32;
+        let lit = match l {
+            Look::Live => true,
+            Look::Busy => i < n / 2,
+            Look::Idle => i % 4 == 0,
+            _ => false,
+        };
+        let (c, r2) = if lit { (GOLD, 15.0) } else { (DIM, 12.5) };
+        let (s, co) = a.sin_cos();
+        let mut pb = PathBuilder::new();
+        pb.move_to(cx + co * 8.5, cy + s * 8.5);
+        pb.line_to(cx + co * r2, cy + s * r2);
+        let mut p = Paint::default();
+        p.anti_alias = true;
+        p.set_color_rgba8(c.0, c.1, c.2, if l == Look::Off { 150 } else { 255 });
+        pm.stroke_path(&pb.finish().unwrap(), &p, &Stroke { width: 2.0, ..Default::default() }, Transform::identity(), None);
+    }
+    let core = if l == Look::Problem { (229, 72, 77) } else if l == Look::Off { DIM } else { GOLD };
     let mut pb = PathBuilder::new();
-    pb.move_to(4.0, 18.0);
-    pb.cubic_to(8.0, 10.0, 12.0, 10.0, 16.0, 16.0);
-    pb.cubic_to(20.0, 22.0, 24.0, 22.0, 28.0, 14.0);
-    let wave = pb.finish().unwrap();
-    let mut pb = PathBuilder::new();
-    pb.move_to(4.0, 25.0);
-    pb.cubic_to(8.0, 18.0, 12.0, 18.0, 16.0, 23.0);
-    pb.cubic_to(20.0, 28.0, 24.0, 28.0, 28.0, 21.0);
-    let wave2 = pb.finish().unwrap();
+    pb.move_to(cx, cy - 5.5);
+    pb.line_to(cx + 5.5, cy);
+    pb.line_to(cx, cy + 5.5);
+    pb.line_to(cx - 5.5, cy);
+    pb.close();
     let mut p = Paint::default();
     p.anti_alias = true;
-    p.shader = LinearGradient::new(
-        Point::from_xy(4.0, 0.0),
-        Point::from_xy(28.0, 0.0),
-        vec![GradientStop::new(0.0, Color::from_rgba8(45, 212, 191, 255)), GradientStop::new(1.0, Color::from_rgba8(167, 139, 250, 255))],
-        SpreadMode::Pad,
-        Transform::identity(),
-    )
-    .unwrap();
-    if l == Look::Off {
-        p.set_color_rgba8(150, 156, 168, 255);
-    }
-    let st = Stroke { width: 3.4, line_cap: LineCap::Round, ..Default::default() };
-    pm.stroke_path(&wave, &p, &st, Transform::identity(), None);
-    let st2 = Stroke { width: 2.4, line_cap: LineCap::Round, ..Default::default() };
-    let mut p2 = p.clone();
-    if l != Look::Off {
-        p2.shader = LinearGradient::new(
-            Point::from_xy(4.0, 0.0),
-            Point::from_xy(28.0, 0.0),
-            vec![GradientStop::new(0.0, Color::from_rgba8(45, 212, 191, 150)), GradientStop::new(1.0, Color::from_rgba8(167, 139, 250, 150))],
-            SpreadMode::Pad,
-            Transform::identity(),
-        )
-        .unwrap();
-    }
-    pm.stroke_path(&wave2, &p2, &st2, Transform::identity(), None);
-    let dot = match l {
-        Look::Live => Some((255, 99, 125)),
-        Look::Busy => Some((56, 189, 248)),
-        Look::Problem => Some((251, 191, 36)),
-        _ => None,
-    };
-    if let Some((r, g, b)) = dot {
-        let mut d = Paint::default();
-        d.anti_alias = true;
-        d.set_color_rgba8(20, 22, 28, 255);
-        pm.fill_path(&PathBuilder::from_circle(25.0, 7.0, 6.5).unwrap(), &d, FillRule::Winding, Transform::identity(), None);
-        d.set_color_rgba8(r, g, b, 255);
-        pm.fill_path(&PathBuilder::from_circle(25.0, 7.0, 4.8).unwrap(), &d, FillRule::Winding, Transform::identity(), None);
-    }
+    p.set_color_rgba8(core.0, core.1, core.2, 255);
+    pm.fill_path(&pb.finish().unwrap(), &p, FillRule::Winding, Transform::identity(), None);
     // Un-premultiply for the icon API.
     let mut out = pm.data().to_vec();
     for px in out.chunks_exact_mut(4) {
@@ -122,7 +104,6 @@ fn icon_rgba(l: Look) -> Vec<u8> {
     }
     out
 }
-
 fn tooltip(st: &Status) -> String {
     let model = match st.model.phase {
         ModelPhase::Ready => format!("{} ready", st.model.name),

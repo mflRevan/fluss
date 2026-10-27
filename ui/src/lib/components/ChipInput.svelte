@@ -40,7 +40,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="chips" onclick={() => input?.focus()}>
   {#each chips as c, i (c)}
-    <span class="chip" animate:flip={{ duration: 180 }} in:scale={{ start: 0.7, duration: 180 }}>
+    <span class="chip" animate:flip={{ duration: 120 }} in:scale={{ start: 0.85, duration: 120 }}>
       {c}
       <button aria-label="Remove {c}" onclick={(e) => (e.stopPropagation(), (chips = chips.filter((_, j) => j !== i)))}>
         <Icon name="x" size={12} stroke={2.2} />
@@ -55,30 +55,30 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    min-height: 40px;
+    gap: 5px;
+    min-height: 38px;
     padding: 5px 8px;
-    border-radius: 10px;
-    border: 1px solid var(--border-2);
-    background: var(--surface);
+    border: 1px solid var(--rule);
+    background: var(--plate);
     cursor: text;
-    transition: border-color var(--t-fast), box-shadow var(--t-fast);
+    transition: border-color var(--t1) var(--q);
+  }
+  .chips:hover {
+    border-color: var(--rule-strong);
   }
   .chips:focus-within {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.18);
+    border-color: var(--gold);
   }
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    height: 26px;
-    padding: 0 4px 0 10px;
-    border-radius: 8px;
-    background: var(--surface-3);
-    border: 1px solid var(--border);
-    font-size: 12.5px;
-    font-weight: 520;
+    gap: 2px;
+    height: 24px;
+    padding: 0 3px 0 8px;
+    border: 1px solid var(--rule-strong);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text);
   }
   .chip button {
     display: grid;
@@ -86,23 +86,25 @@
     width: 18px;
     height: 18px;
     border: 0;
-    border-radius: 5px;
     background: transparent;
     color: var(--text-3);
   }
   .chip button:hover {
-    background: var(--surface-2);
-    color: var(--rose);
+    color: var(--danger);
   }
   input {
     flex: 1;
     min-width: 120px;
-    height: 28px;
+    height: 26px;
     border: 0;
     outline: none;
     background: transparent;
+    font-family: var(--mono);
+    font-size: 12px;
   }
   input::placeholder {
     color: var(--text-3);
+    font-family: var(--font);
+    font-size: 13px;
   }
 </style>

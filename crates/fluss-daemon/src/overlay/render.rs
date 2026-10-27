@@ -1,8 +1,13 @@
 //! Pure overlay renderer (tiny-skia + fontdue into an RGBA pixmap). Separate
 //! from the window so every state can be rendered to PNG for design review
 //! (`fluss-daemon --render-overlay <dir>`).
+//!
+//! Look (docs/DESIGN.md): a black chamfered plate with a gold hairline, the
+//! "iris" voice visual (radial ticks around a gold diamond), a mono status
+//! label and the live text in Geist. Solid colours only.
 
 use std::collections::HashMap;
+use std::f32::consts::{PI, TAU};
 
 use tiny_skia::*;
 
@@ -17,96 +22,86 @@ pub enum Kind {
 }
 
 /// Logical canvas (scaled by DPI).
-pub const CANVAS_W: f32 = 640.0;
-pub const CANVAS_H: f32 = 104.0;
-const PILL_H: f32 = 42.0;
-const BARS: usize = 13;
-const MAX_TEXT_W: f32 = 420.0;
+pub const CANVAS_W: f32 = 680.0;
+pub const CANVAS_H: f32 = 96.0;
+const PLATE_H: f32 = 44.0;
+const CHAMFER: f32 = 9.0;
+const IRIS_R: f32 = 14.0;
+const TICKS: usize = 40;
+const MAX_TEXT_W: f32 = 440.0;
+const TEXT_PX: f32 = 14.5;
+const LABEL_PX: f32 = 10.5;
+
+type Rgb = [u8; 3];
+const PLATE: Rgb = [11, 10, 8];
+const GOLD: Rgb = [227, 176, 75];
+const GOLD_DIM: Rgb = [140, 107, 42];
+const RULE: Rgb = [58, 49, 31];
+const TEXT: Rgb = [237, 230, 214];
+const TEXT_2: Rgb = [154, 146, 132];
+const DANGER: Rgb = [229, 72, 77];
 
 pub struct Scene<'a> {
     pub kind: Kind,
     pub text: &'a str,
-    pub hint: &'a str,
     /// Seconds since start (drives all motion).
     pub t: f32,
     /// Recent mic levels (newest last), 0..1 after normalization.
     pub levels: &'a [f32],
-    /// 0..1 fade/slide.
+    /// 0..1 entrance.
     pub appear: f32,
-    /// Animated pill width (logical px).
+    /// Animated plate width (logical px).
     pub width: f32,
     pub scale: f32,
     pub reduce_motion: bool,
 }
 
-pub struct Fonts {
-    font: Option<fontdue::Font>,
+struct Face {
+    font: fontdue::Font,
     cache: HashMap<(char, u32), (fontdue::Metrics, Vec<u8>)>,
 }
 
-impl Fonts {
-    pub fn load() -> Self {
-        let candidates: &[&str] = if cfg!(windows) {
-            &["C:\\Windows\\Fonts\\segoeui.ttf", "C:\\Windows\\Fonts\\arial.ttf"]
-        } else if cfg!(target_os = "macos") {
-            &["/System/Library/Fonts/SFNS.ttf", "/Library/Fonts/Arial.ttf"]
-        } else {
-            &["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf"]
-        };
-        let font = candidates.iter().find_map(|p| {
-            let bytes = std::fs::read(p).ok()?;
-            fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).ok()
-        });
-        Self { font, cache: HashMap::new() }
+impl Face {
+    fn new(bytes: &'static [u8]) -> Self {
+        Self { font: fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).expect("embedded font"), cache: HashMap::new() }
     }
 
-    fn glyph(&mut self, c: char, px: f32) -> Option<&(fontdue::Metrics, Vec<u8>)> {
-        let font = self.font.as_ref()?;
-        let key = (c, (px * 10.0) as u32);
-        Some(self.cache.entry(key).or_insert_with(|| font.rasterize(c, px)))
+    fn glyph(&mut self, c: char, px: f32) -> (fontdue::Metrics, &[u8]) {
+        let font = &self.font;
+        let g = self.cache.entry((c, (px * 10.0) as u32)).or_insert_with(|| font.rasterize(c, px));
+        (g.0, &g.1)
     }
 
-    pub fn measure(&mut self, s: &str, px: f32) -> f32 {
+    fn measure(&mut self, s: &str, px: f32, tracking: f32) -> f32 {
         let mut w = 0.0;
         let mut prev = None;
         for c in s.chars() {
-            if let (Some(p), Some(f)) = (prev, self.font.as_ref()) {
-                w += f.horizontal_kern(p, c, px).unwrap_or(0.0);
+            if let Some(p) = prev {
+                w += self.font.horizontal_kern(p, c, px).unwrap_or(0.0);
             }
-            if let Some((m, _)) = self.glyph(c, px) {
-                w += m.advance_width;
-            }
+            w += self.glyph(c, px).0.advance_width + tracking;
             prev = Some(c);
         }
         w
     }
 
-    /// Draw text with its baseline at `y`; `fade_left` fades the first `fade_w`
-    /// pixels when the text is clipped on the left.
+    /// Baseline at `y`. `clip` limits x; `fade` fades the first pixels after clip.0.
     #[allow(clippy::too_many_arguments)]
-    fn draw(&mut self, pm: &mut Pixmap, s: &str, x: f32, y: f32, px: f32, rgba: [f32; 4], clip: (f32, f32), fade_w: f32) {
+    fn draw(&mut self, pm: &mut Pixmap, s: &str, x: f32, y: f32, px: f32, tracking: f32, rgb: Rgb, alpha: f32, clip: (f32, f32), fade: f32) {
         let (w, h) = (pm.width() as i32, pm.height() as i32);
         let mut cx = x;
         let mut prev = None;
-        let kern: Vec<f32> = {
-            let f = self.font.as_ref();
-            let mut v = Vec::new();
-            let mut p: Option<char> = None;
-            for c in s.chars() {
-                v.push(match (p, f) {
-                    (Some(a), Some(f)) => f.horizontal_kern(a, c, px).unwrap_or(0.0),
-                    _ => 0.0,
-                });
-                p = Some(c);
+        let chars: Vec<char> = s.chars().collect();
+        for c in chars {
+            if let Some(p) = prev {
+                cx += self.font.horizontal_kern(p, c, px).unwrap_or(0.0);
             }
-            v
-        };
-        for (i, c) in s.chars().enumerate() {
-            let _ = prev;
-            cx += kern[i];
-            let Some((m, cov)) = self.glyph(c, px).map(|(m, c)| (*m, c.clone())) else { continue };
+            prev = Some(c);
+            let (m, cov) = self.glyph(c, px);
+            let cov = cov.to_vec();
             let gx = (cx + m.xmin as f32).round() as i32;
             let gy = (y - m.height as f32 - m.ymin as f32).round() as i32;
+            cx += m.advance_width + tracking;
             let data = pm.data_mut();
             for row in 0..m.height as i32 {
                 let py = gy + row;
@@ -118,9 +113,9 @@ impl Fonts {
                     if pxx < 0 || pxx >= w || (pxx as f32) < clip.0 || (pxx as f32) > clip.1 {
                         continue;
                     }
-                    let mut a = cov[(row * m.width as i32 + col) as usize] as f32 / 255.0 * rgba[3];
-                    if fade_w > 0.0 {
-                        a *= ((pxx as f32 - clip.0) / fade_w).clamp(0.0, 1.0);
+                    let mut a = cov[(row * m.width as i32 + col) as usize] as f32 / 255.0 * alpha;
+                    if fade > 0.0 {
+                        a *= ((pxx as f32 - clip.0) / fade).clamp(0.0, 1.0);
                     }
                     if a <= 0.0 {
                         continue;
@@ -128,251 +123,207 @@ impl Fonts {
                     let o = ((py * w + pxx) * 4) as usize;
                     for k in 0..3 {
                         let d = data[o + k] as f32;
-                        data[o + k] = (rgba[k] * 255.0 * a + d * (1.0 - a)).round().min(255.0) as u8;
+                        data[o + k] = (rgb[k] as f32 * a + d * (1.0 - a)).round().min(255.0) as u8;
                     }
                     let d = data[o + 3] as f32;
                     data[o + 3] = (255.0 * a + d * (1.0 - a)).round().min(255.0) as u8;
                 }
             }
-            cx += m.advance_width;
-            prev = Some(c);
         }
     }
 }
 
-fn rrect(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<Path> {
-    let r = r.min(w / 2.0).min(h / 2.0);
-    let k = 0.552_284_8 * r;
-    let mut p = PathBuilder::new();
-    p.move_to(x + r, y);
-    p.line_to(x + w - r, y);
-    p.cubic_to(x + w - r + k, y, x + w, y + r - k, x + w, y + r);
-    p.line_to(x + w, y + h - r);
-    p.cubic_to(x + w, y + h - r + k, x + w - r + k, y + h, x + w - r, y + h);
-    p.line_to(x + r, y + h);
-    p.cubic_to(x + r - k, y + h, x, y + h - r + k, x, y + h - r);
-    p.line_to(x, y + r);
-    p.cubic_to(x, y + r - k, x + r - k, y, x + r, y);
-    p.close();
-    p.finish()
+pub struct Fonts {
+    sans: Face,
+    mono: Face,
 }
 
-fn paint(c: [u8; 4]) -> Paint<'static> {
+impl Fonts {
+    pub fn load() -> Self {
+        Self {
+            sans: Face::new(include_bytes!("../../../../assets/fonts/geist/Geist-Regular.ttf")),
+            mono: Face::new(include_bytes!("../../../../assets/fonts/geist/GeistMono-Medium.ttf")),
+        }
+    }
+}
+
+fn paint(c: Rgb, a: f32) -> Paint<'static> {
     let mut p = Paint::default();
-    p.set_color_rgba8(c[0], c[1], c[2], c[3]);
+    p.set_color_rgba8(c[0], c[1], c[2], (a.clamp(0.0, 1.0) * 255.0).round() as u8);
     p.anti_alias = true;
     p
 }
 
-fn arc(cx: f32, cy: f32, r: f32, a0: f32, sweep: f32) -> Option<Path> {
+/// Plate with two chamfered corners (top-left, bottom-right).
+fn plate(x: f32, y: f32, w: f32, h: f32, c: f32) -> Option<Path> {
     let mut p = PathBuilder::new();
-    let n = 28;
-    for i in 0..=n {
-        let a = a0 + sweep * i as f32 / n as f32;
-        let (x, y) = (cx + r * a.cos(), cy + r * a.sin());
-        if i == 0 {
-            p.move_to(x, y);
-        } else {
-            p.line_to(x, y);
-        }
-    }
+    p.move_to(x + c, y);
+    p.line_to(x + w, y);
+    p.line_to(x + w, y + h - c);
+    p.line_to(x + w - c, y + h);
+    p.line_to(x, y + h);
+    p.line_to(x, y + c);
+    p.close();
     p.finish()
 }
 
-fn lerp_color(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
-    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
-}
-
-const TEAL: [f32; 3] = [0.176, 0.831, 0.749];
-const SKY: [f32; 3] = [0.220, 0.741, 0.973];
-const VIOLET: [f32; 3] = [0.655, 0.545, 0.980];
-
-fn bar_color(i: usize) -> [f32; 3] {
-    let t = i as f32 / (BARS - 1) as f32;
-    if t < 0.5 { lerp_color(TEAL, SKY, t * 2.0) } else { lerp_color(SKY, VIOLET, (t - 0.5) * 2.0) }
-}
-
-/// Width the pill wants for this content (logical px).
-pub fn content_width(fonts: &mut Fonts, kind: Kind, text: &str, hint: &str) -> f32 {
-    let label = label_for(kind, text, hint);
-    if matches!(kind, Kind::NoticeOk | Kind::NoticeErr) {
-        return 46.0 + fonts.measure(&label, 14.0).min(MAX_TEXT_W) + 22.0;
+fn line(pm: &mut Pixmap, a: (f32, f32), b: (f32, f32), width: f32, c: Rgb, alpha: f32) {
+    let mut pb = PathBuilder::new();
+    pb.move_to(a.0, a.1);
+    pb.line_to(b.0, b.1);
+    if let Some(p) = pb.finish() {
+        let st = Stroke { width, line_cap: LineCap::Butt, ..Default::default() };
+        pm.stroke_path(&p, &paint(c, alpha), &st, Transform::identity(), None);
     }
-    let base = 20.0 + 14.0 + 16.0 + BARS as f32 * 5.0 - 2.0 + 18.0;
-    if label.is_empty() {
-        return base;
-    }
-    let tw = fonts.measure(&label, 14.0).min(MAX_TEXT_W);
-    base + 4.0 + tw + 4.0
 }
 
-fn label_for(kind: Kind, text: &str, hint: &str) -> String {
+fn label_for(kind: Kind) -> String {
     match kind {
-        Kind::Loading(p) => match p {
-            Some(p) if p > 0.0 && p < 1.0 => format!("Loading model · {}%", (p * 100.0).round()),
-            _ => "Loading model…".into(),
-        },
-        Kind::NoticeOk | Kind::NoticeErr => text.to_string(),
-        _ if !text.trim().is_empty() => text.trim().to_string(),
-        _ => hint.to_string(),
+        Kind::Listening => "REC".into(),
+        Kind::HandsFree => "HANDS-FREE".into(),
+        Kind::Finishing => "TYPING".into(),
+        Kind::Loading(Some(p)) if p > 0.0 && p < 1.0 => format!("LOADING {:>2}%", (p * 100.0).round()),
+        Kind::Loading(_) => "LOADING".into(),
+        Kind::NoticeOk => "DONE".into(),
+        Kind::NoticeErr => "ERROR".into(),
+    }
+}
+
+fn layout(fonts: &mut Fonts, kind: Kind, text: &str, scale: f32) -> (f32, f32, f32) {
+    // (label width, text width, total width) in logical px.
+    let lw = fonts.mono.measure(&label_for(kind), LABEL_PX * scale, 1.2 * scale) / scale;
+    let tw = if text.trim().is_empty() { 0.0 } else { fonts.sans.measure(text.trim(), TEXT_PX * scale, 0.0) / scale };
+    let tw = tw.min(MAX_TEXT_W);
+    let base = 14.0 + IRIS_R * 2.0 + 12.0 + lw + 16.0;
+    let total = if tw > 0.0 { base + 1.0 + 14.0 + tw + 18.0 } else { base };
+    (lw, tw, total)
+}
+
+/// Width the plate wants for this content (logical px).
+pub fn content_width(fonts: &mut Fonts, kind: Kind, text: &str, _hint: &str) -> f32 {
+    layout(fonts, kind, text, 1.0).2
+}
+
+/// The iris: radial ticks around a diamond.
+fn iris(pm: &mut Pixmap, cx: f32, cy: f32, s: f32, sc: &Scene, alpha: f32) {
+    let t = if sc.reduce_motion { 0.0 } else { sc.t };
+    let r0 = 6.2 * s;
+    let max_len = (IRIS_R - 7.0) * s;
+    let n_lv = sc.levels.len().max(1);
+    let (spin, sweep_speed) = match sc.kind {
+        Kind::HandsFree => (t * 0.55, 0.0),
+        Kind::Finishing => (0.0, 7.5),
+        Kind::Loading(_) => (0.0, 4.2),
+        _ => (t * TAU / 40.0, 0.0),
+    };
+    for i in 0..TICKS {
+        let a = -PI / 2.0 + i as f32 * TAU / TICKS as f32 + spin;
+        let (len, bright, color) = match sc.kind {
+            Kind::Listening | Kind::HandsFree => {
+                // Newest level at 12 o'clock, history sweeping clockwise.
+                let h = n_lv - 1 - (i * n_lv / TICKS).min(n_lv - 1);
+                let lv = sc.levels.get(h).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+                (0.18 + 0.82 * lv, 0.32 + 0.68 * lv, if lv > 0.12 { GOLD } else { GOLD_DIM })
+            }
+            Kind::Finishing | Kind::Loading(_) => {
+                let head = (t * sweep_speed).rem_euclid(TAU);
+                let pos = (i as f32 * TAU / TICKS as f32).rem_euclid(TAU);
+                let d = (head - pos).rem_euclid(TAU);
+                let lit = (1.0 - d / 2.2).max(0.0);
+                let done = match sc.kind {
+                    Kind::Loading(Some(p)) => pos <= p * TAU,
+                    _ => false,
+                };
+                let b = if done { 0.85f32 } else { 0.22 + 0.78 * lit };
+                (0.25 + 0.35 * lit, b, if lit > 0.3 || done { GOLD } else { GOLD_DIM })
+            }
+            Kind::NoticeOk | Kind::NoticeErr => {
+                let top = i == 0;
+                let c = if sc.kind == Kind::NoticeErr { DANGER } else { GOLD };
+                (if top { 1.0 } else { 0.12 }, if top { 1.0 } else { 0.25 }, if top { c } else { GOLD_DIM })
+            }
+        };
+        let (sn, cs) = a.sin_cos();
+        let r1 = r0 + 0.8 * s;
+        let r2 = r1 + (1.2 * s).max(len * max_len);
+        line(pm, (cx + cs * r1, cy + sn * r1), (cx + cs * r2, cy + sn * r2), 1.0 * s, color, bright * alpha);
+    }
+    // Diamond core.
+    let d = 3.2 * s * (1.0 + if matches!(sc.kind, Kind::Listening) { 0.12 * sc.levels.last().copied().unwrap_or(0.0) } else { 0.0 });
+    let mut pb = PathBuilder::new();
+    pb.move_to(cx, cy - d);
+    pb.line_to(cx + d, cy);
+    pb.line_to(cx, cy + d);
+    pb.line_to(cx - d, cy);
+    pb.close();
+    if let Some(p) = pb.finish() {
+        let core = if sc.kind == Kind::NoticeErr { DANGER } else { GOLD };
+        if sc.kind == Kind::HandsFree {
+            pm.stroke_path(&p, &paint(core, alpha), &Stroke { width: 1.2 * s, ..Default::default() }, Transform::identity(), None);
+        } else {
+            pm.fill_path(&p, &paint(core, alpha), FillRule::Winding, Transform::identity(), None);
+        }
     }
 }
 
 pub fn draw(pm: &mut Pixmap, fonts: &mut Fonts, sc: &Scene) {
     pm.fill(Color::TRANSPARENT);
     let s = sc.scale;
-    let ease = 1.0 - (1.0 - sc.appear).powi(3);
-    let alpha = ease;
-    if alpha <= 0.001 {
+    // Quick-out easing: snappy with a little smoothness.
+    let e = 1.0 - (1.0 - sc.appear).powi(4);
+    if e <= 0.001 {
         return;
     }
-    let cw = CANVAS_W * s;
-    let ch = CANVAS_H * s;
+    let alpha = e;
+    let (lw, tw, _) = layout(fonts, sc.kind, sc.text, s);
     let w = sc.width * s;
-    let h = PILL_H * s;
-    let x = (cw - w) / 2.0;
-    let y = (ch - h) / 2.0 + (1.0 - ease) * 10.0 * s;
-    let a8 = |a: f32| (a * alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+    let h = PLATE_H * s;
+    let x = ((CANVAS_W * s - w) / 2.0).round();
+    let y = ((CANVAS_H * s - h) / 2.0 + (1.0 - e) * 6.0 * s).round();
 
-    // Soft shadow.
-    for i in 0..8 {
-        let g = i as f32 * 1.6 * s;
-        if let Some(p) = rrect(x - g, y - g + 3.0 * s, w + 2.0 * g, h + 2.0 * g, h / 2.0 + g) {
-            pm.fill_path(&p, &paint([0, 0, 0, a8(0.07 * (1.0 - i as f32 / 8.0))]), FillRule::Winding, Transform::identity(), None);
-        }
+    // Plate + hairline; a 1px black outer line keeps the edge crisp on light backgrounds.
+    if let Some(p) = plate(x - 1.0, y - 1.0, w + 2.0, h + 2.0, CHAMFER * s + 0.5) {
+        pm.fill_path(&p, &paint([0, 0, 0], 0.55 * alpha), FillRule::Winding, Transform::identity(), None);
     }
-    // Body: dark glass with a subtle vertical gradient.
-    if let Some(p) = rrect(x, y, w, h, h / 2.0) {
-        let mut body = paint([0, 0, 0, 255]);
-        body.shader = LinearGradient::new(
-            Point::from_xy(0.0, y),
-            Point::from_xy(0.0, y + h),
-            vec![
-                GradientStop::new(0.0, Color::from_rgba(0.135, 0.150, 0.190, 0.95 * alpha).unwrap()),
-                GradientStop::new(1.0, Color::from_rgba(0.075, 0.085, 0.110, 0.95 * alpha).unwrap()),
-            ],
-            SpreadMode::Pad,
-            Transform::identity(),
-        )
-        .unwrap_or(Shader::SolidColor(Color::BLACK));
-        pm.fill_path(&p, &body, FillRule::Winding, Transform::identity(), None);
-        let mut border = paint([255, 255, 255, a8(0.10)]);
-        border.shader = LinearGradient::new(
-            Point::from_xy(0.0, y),
-            Point::from_xy(0.0, y + h),
-            vec![
-                GradientStop::new(0.0, Color::from_rgba(1.0, 1.0, 1.0, 0.16 * alpha).unwrap()),
-                GradientStop::new(1.0, Color::from_rgba(1.0, 1.0, 1.0, 0.05 * alpha).unwrap()),
-            ],
-            SpreadMode::Pad,
-            Transform::identity(),
-        )
-        .unwrap_or(Shader::SolidColor(Color::WHITE));
-        pm.stroke_path(&p, &border, &Stroke { width: 1.0 * s, ..Default::default() }, Transform::identity(), None);
+    if let Some(p) = plate(x, y, w, h, CHAMFER * s) {
+        pm.fill_path(&p, &paint(PLATE, 0.97 * alpha), FillRule::Winding, Transform::identity(), None);
+        let edge = match sc.kind {
+            Kind::NoticeErr => DANGER,
+            Kind::Listening | Kind::HandsFree => GOLD_DIM,
+            _ => RULE,
+        };
+        pm.stroke_path(&p, &paint(edge, alpha), &Stroke { width: 1.0 * s, ..Default::default() }, Transform::identity(), None);
     }
+    // Gold index mark on the chamfer (HUD detail).
+    line(pm, (x + 2.0 * s, y + CHAMFER * s + 3.0 * s), (x + 2.0 * s, y + h - 6.0 * s), 1.0 * s, GOLD, 0.0);
+    line(pm, (x + w - 10.0 * s, y + 3.5 * s), (x + w - 4.0 * s, y + 3.5 * s), 1.0 * s, GOLD_DIM, alpha);
 
     let cy = y + h / 2.0;
-    let ix = x + 20.0 * s;
-    let t = if sc.reduce_motion { 0.0 } else { sc.t };
+    let icx = x + (14.0 + IRIS_R) * s;
+    iris(pm, icx, cy, s, sc, alpha);
 
-    // Indicator.
-    match sc.kind {
-        Kind::Listening | Kind::HandsFree => {
-            let col: [u8; 3] = if sc.kind == Kind::Listening { [255, 99, 125] } else { [255, 190, 80] };
-            let ph = (t / 1.3).fract();
-            if let Some(p) = PathBuilder::from_circle(ix, cy, (5.0 + 8.0 * ph) * s) {
-                pm.fill_path(&p, &paint([col[0], col[1], col[2], a8(0.32 * (1.0 - ph))]), FillRule::Winding, Transform::identity(), None);
-            }
-            if let Some(p) = PathBuilder::from_circle(ix, cy, 5.0 * s) {
-                pm.fill_path(&p, &paint([col[0], col[1], col[2], a8(1.0)]), FillRule::Winding, Transform::identity(), None);
-            }
-            if sc.kind == Kind::HandsFree {
-                // Tiny lock shackle above the dot.
-                if let Some(p) = arc(ix, cy - 5.5 * s, 3.2 * s, std::f32::consts::PI, std::f32::consts::PI) {
-                    let st = Stroke { width: 1.6 * s, line_cap: LineCap::Round, ..Default::default() };
-                    pm.stroke_path(&p, &paint([col[0], col[1], col[2], a8(1.0)]), &st, Transform::identity(), None);
-                }
-            }
-        }
-        Kind::Finishing | Kind::Loading(_) => {
-            let col: [u8; 3] = if matches!(sc.kind, Kind::Finishing) { [56, 189, 248] } else { [167, 139, 250] };
-            let st = Stroke { width: 2.2 * s, line_cap: LineCap::Round, ..Default::default() };
-            if let Some(p) = PathBuilder::from_circle(ix, cy, 6.5 * s) {
-                pm.stroke_path(&p, &paint([col[0], col[1], col[2], a8(0.18)]), &Stroke { width: 2.2 * s, ..Default::default() }, Transform::identity(), None);
-            }
-            let sweep = match sc.kind {
-                Kind::Loading(Some(p)) if p > 0.02 => std::f32::consts::TAU * p.clamp(0.0, 1.0),
-                _ => 4.2,
-            };
-            if let Some(p) = arc(ix, cy, 6.5 * s, t * 5.5, sweep) {
-                pm.stroke_path(&p, &paint([col[0], col[1], col[2], a8(1.0)]), &st, Transform::identity(), None);
-            }
-        }
-        Kind::NoticeOk | Kind::NoticeErr => {
-            let col: [u8; 3] = if sc.kind == Kind::NoticeOk { [52, 211, 153] } else { [251, 113, 133] };
-            if let Some(p) = PathBuilder::from_circle(ix, cy, 8.0 * s) {
-                pm.fill_path(&p, &paint([col[0], col[1], col[2], a8(0.20)]), FillRule::Winding, Transform::identity(), None);
-            }
-            let st = Stroke { width: 2.0 * s, line_cap: LineCap::Round, line_join: LineJoin::Round, ..Default::default() };
-            let mut pb = PathBuilder::new();
-            if sc.kind == Kind::NoticeOk {
-                pb.move_to(ix - 3.5 * s, cy + 0.2 * s);
-                pb.line_to(ix - 1.0 * s, cy + 2.8 * s);
-                pb.line_to(ix + 3.8 * s, cy - 2.6 * s);
-            } else {
-                pb.move_to(ix, cy - 3.8 * s);
-                pb.line_to(ix, cy + 0.8 * s);
-                pb.move_to(ix, cy + 3.6 * s);
-                pb.line_to(ix, cy + 3.7 * s);
-            }
-            if let Some(p) = pb.finish() {
-                pm.stroke_path(&p, &paint([col[0], col[1], col[2], a8(1.0)]), &st, Transform::identity(), None);
-            }
-        }
-    }
-
-    // Level bars: a scrolling waveform from recent mic levels.
-    let bx = ix + 18.0 * s;
-    let notice = matches!(sc.kind, Kind::NoticeOk | Kind::NoticeErr);
-    let bars_end = if notice {
-        bx - 6.0 * s
-    } else {
-        for i in 0..BARS {
-            let lvl = sc.levels.get(sc.levels.len().saturating_sub(BARS) + i).copied().unwrap_or(0.0);
-            let shape = 0.55 + 0.45 * (1.0 - ((i as f32 - (BARS - 1) as f32 / 2.0).abs() / ((BARS - 1) as f32 / 2.0)).powi(2));
-            let amp = match sc.kind {
-                Kind::Listening | Kind::HandsFree => lvl * shape,
-                Kind::Finishing => 0.18 + 0.16 * ((t * 7.0 - i as f32 * 0.55).sin() * 0.5 + 0.5),
-                Kind::Loading(_) => 0.10 + 0.10 * ((t * 4.0 - i as f32 * 0.45).sin() * 0.5 + 0.5),
-                _ => 0.0,
-            };
-            let bh = (4.0 + 20.0 * amp.clamp(0.0, 1.0)) * s;
-            let bw = 3.0 * s;
-            let xx = bx + i as f32 * 5.0 * s;
-            let c = bar_color(i);
-            let dim = if matches!(sc.kind, Kind::Loading(_)) { 0.55 } else { 1.0 };
-            if let Some(p) = rrect(xx, cy - bh / 2.0, bw, bh, bw / 2.0) {
-                let mut pt = Paint::default();
-                pt.anti_alias = true;
-                pt.set_color(Color::from_rgba(c[0], c[1], c[2], alpha * dim).unwrap());
-                pm.fill_path(&p, &pt, FillRule::Winding, Transform::identity(), None);
-            }
-        }
-        bx + (BARS as f32 * 5.0 - 2.0) * s
+    // Status label (mono, uppercase).
+    let lx = icx + IRIS_R * s + 12.0 * s;
+    let label = label_for(sc.kind);
+    let lcol = match sc.kind {
+        Kind::NoticeErr => DANGER,
+        Kind::Listening | Kind::HandsFree | Kind::NoticeOk => GOLD,
+        _ => TEXT_2,
     };
+    let lpx = LABEL_PX * s;
+    fonts.mono.draw(pm, &label, lx, cy + 3.6 * s, lpx, 1.2 * s, lcol, alpha, (0.0, f32::MAX), 0.0);
 
-    // Text.
-    let label = label_for(sc.kind, sc.text, sc.hint);
-    if !label.is_empty() {
-        let px = 14.0 * s;
-        let tx0 = bars_end + 14.0 * s;
-        let avail_right = x + w - 18.0 * s;
-        let avail = (avail_right - tx0).max(0.0);
-        let tw = fonts.measure(&label, px);
-        let (start_x, fade) = if tw > avail { (avail_right - tw, 22.0 * s) } else { (tx0, 0.0) };
-        let dim_hint = sc.text.trim().is_empty() && !notice && !matches!(sc.kind, Kind::Loading(_));
-        let col = if dim_hint { [0.62, 0.66, 0.74, 1.0] } else { [0.93, 0.945, 0.965, 1.0] };
-        let baseline = cy + 5.0 * s;
-        fonts.draw(pm, &label, start_x, baseline, px, [col[0], col[1], col[2], alpha], (tx0, avail_right), fade);
+    // Divider + text.
+    if tw > 0.0 {
+        let dx = (lx + lw * s + 16.0 * s).round() + 0.5;
+        line(pm, (dx, cy - 9.0 * s), (dx, cy + 9.0 * s), 1.0 * s, RULE, alpha);
+        let tx0 = dx + 14.0 * s;
+        let right = x + w - 18.0 * s;
+        let px = TEXT_PX * s;
+        let text = sc.text.trim();
+        let full = fonts.sans.measure(text, px, 0.0);
+        let (start, fade) = if full > right - tx0 { (right - full, 26.0 * s) } else { (tx0, 0.0) };
+        let col = if matches!(sc.kind, Kind::NoticeErr | Kind::NoticeOk) { TEXT } else { TEXT };
+        fonts.sans.draw(pm, text, start, cy + 5.0 * s, px, 0.0, col, alpha, (tx0, right), fade);
     }
 }

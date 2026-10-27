@@ -2,10 +2,8 @@
   import { flip } from "svelte/animate";
   import { fade, fly } from "svelte/transition";
   import { call } from "../backend";
-  import FlowField from "../components/FlowField.svelte";
-  import Icon from "../components/Icon.svelte";
+  import Iris, { type IrisMode } from "../components/Iris.svelte";
   import Keys from "../components/Keys.svelte";
-  import Orb from "../components/Orb.svelte";
   import RuleSheet from "../components/RuleSheet.svelte";
   import { app, toast } from "../state.svelte";
   import type { HistoryItem } from "../types";
@@ -14,24 +12,27 @@
   const phase = $derived(s?.phase ?? "idle");
   const model = $derived(s?.model.phase ?? "unloaded");
   const listening = $derived(phase === "listening" || phase === "hands-free");
+  const irisMode = $derived<IrisMode>(
+    phase === "listening" ? "listening" : phase === "hands-free" ? "hands-free" : phase === "finishing" ? "thinking" : model === "loading" || model === "installing" ? "loading" : "idle",
+  );
 
   const headline = $derived.by(() => {
     if (!app.connected) return "Connecting to Fluss";
-    if (listening) return phase === "hands-free" ? "Listening, hands-free" : "Listening";
-    if (phase === "finishing") return "Writing it down";
+    if (listening) return phase === "hands-free" ? "Listening, hands-free." : "Listening.";
+    if (phase === "finishing") return "Writing it down.";
     switch (model) {
       case "ready":
-        return "Ready when you are";
+        return "Ready when you are.";
       case "loading":
-        return "Warming up";
+        return "Warming up.";
       case "installing":
-        return "Setting things up";
+        return "Setting things up.";
       case "unloaded":
-        return "Resting";
+        return "Resting.";
       case "not-installed":
-        return "Pick a voice model";
+        return "Pick a voice model.";
       case "error":
-        return "Something needs attention";
+        return "Needs attention.";
     }
   });
 
@@ -65,16 +66,16 @@
     const typing = s.stats.words / 40; // minutes at 40 wpm
     const speaking = s.stats.audio_seconds / 60;
     const m = Math.max(0, typing - speaking);
-    return m >= 90 ? `${(m / 60).toFixed(1)} h` : `${Math.round(m)} min`;
+    return m >= 90 ? `${(m / 60).toFixed(1)}h` : `${Math.round(m)}m`;
   });
 
   const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
 
   function ago(ms: number) {
     const d = (Date.now() - ms) / 1000;
-    if (d < 60) return "just now";
-    if (d < 3600) return `${Math.floor(d / 60)} min ago`;
-    if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
+    if (d < 60) return "now";
+    if (d < 3600) return `${Math.floor(d / 60)}m ago`;
+    if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
     return new Date(ms).toLocaleDateString();
   }
 
@@ -115,84 +116,71 @@
 
 <svelte:window onpointerup={() => (dragging = false)} />
 
-<section class="hero card" class:live={listening}>
-  <FlowField energy={listening ? 1 : phase === "finishing" ? 0.7 : model === "ready" ? 0.25 : 0.12} />
-  <div class="hero-in">
-    <Orb {model} {phase} progress={s?.model.progress ?? null} />
-    <div class="hero-txt">
-      <div class="eyebrow">
-        {#if s}
-          <span class="badge accent"><Icon name="cpu" size={12} />{s.model.name}</span>
-          {#if s.model.device}<span class="badge">{s.model.device}</span>{/if}
-          {#if s.model.memory_mb}<span class="badge">{(s.model.memory_mb / 1024).toFixed(1)} GB in memory</span>{/if}
-        {/if}
-      </div>
-      {#key headline}
-        <h1 in:fly={{ y: 8, duration: 260 }}>{headline}</h1>
-      {/key}
-      <p class="sub" class:partial={listening && app.partial}>{sub}</p>
-      {#if !listening && phase === "idle"}
-        <div class="cta" in:fade>
-          {#if model === "ready"}
-            <span class="hold">Hold</span>
-            <Keys combo={s?.hotkeys.push_to_talk ?? "Ctrl+Win"} />
-            <span class="hold">anywhere and speak</span>
-          {:else if model === "not-installed"}
-            <button class="btn primary" onclick={() => (app.page = "model")}><Icon name="download" size={15} />Choose a model</button>
-          {:else if model === "unloaded"}
-            <button class="btn" onclick={() => act("model.load")}><Icon name="zap" size={15} />Wake it now</button>
-          {:else if model === "error"}
-            <button class="btn" onclick={() => act("model.load")}><Icon name="refresh" size={15} />Try again</button>
-            <button class="btn ghost" onclick={() => (app.page = "model")}>Model settings</button>
-          {/if}
-        </div>
+<section class="hero">
+  <div class="iris"><Iris size={212} mode={irisMode} progress={model === "installing" ? (s?.model.progress ?? null) : null} /></div>
+  <div class="hero-txt">
+    <div class="label readout">
+      {#if s}
+        <span class="gold">◆ {s.model.name}</span>
+        {#if s.model.device}<span>{s.model.device}</span>{/if}
+        {#if s.model.memory_mb}<span>{(s.model.memory_mb / 1024).toFixed(1)} GB resident</span>{/if}
       {/if}
     </div>
+    {#key headline}
+      <h1 class="display" in:fly={{ y: 4, duration: 140 }}>{headline}</h1>
+    {/key}
+    <p class="sub" class:partial={(listening || phase === "finishing") && app.partial}>{sub}</p>
+    {#if !listening && phase === "idle"}
+      <div class="cta" in:fade={{ duration: 120 }}>
+        {#if model === "ready"}
+          <span class="hold">Hold</span>
+          <Keys combo={s?.hotkeys.push_to_talk ?? "Ctrl+Win"} />
+          <span class="hold">anywhere and speak.</span>
+        {:else if model === "not-installed"}
+          <button class="btn primary" onclick={() => (app.page = "model")}>Choose a model</button>
+        {:else if model === "unloaded"}
+          <button class="btn" onclick={() => act("model.load")}>Wake it now</button>
+        {:else if model === "error"}
+          <button class="btn" onclick={() => act("model.load")}>Try again</button>
+          <button class="btn ghost" onclick={() => (app.page = "model")}>Model settings</button>
+        {/if}
+      </div>
+    {/if}
   </div>
 </section>
 
 <div class="stats">
-  <div class="stat card">
-    <span class="k">Dictations</span>
-    <span class="v">{fmt(s?.stats.dictations)}</span>
+  <div class="stat"><span class="label">Dictations</span><span class="v mono">{fmt(s?.stats.dictations)}</span></div>
+  <div class="stat"><span class="label">Words written</span><span class="v mono">{fmt(s?.stats.words)}</span></div>
+  <div class="stat">
+    <span class="label">Typical delay</span>
+    <span class="v mono">{s?.stats.median_latency_ms ?? "—"}<small>{s?.stats.median_latency_ms ? "ms" : ""}</small></span>
   </div>
-  <div class="stat card">
-    <span class="k">Words written</span>
-    <span class="v">{fmt(s?.stats.words)}</span>
-  </div>
-  <div class="stat card">
-    <span class="k">Typical delay</span>
-    <span class="v">{s?.stats.median_latency_ms ?? "—"}<small>{s?.stats.median_latency_ms ? " ms" : ""}</small></span>
-  </div>
-  <div class="stat card">
-    <span class="k">Time saved</span>
-    <span class="v gradient-text">{timeSaved}</span>
-  </div>
+  <div class="stat"><span class="label">Time saved</span><span class="v mono gold">{timeSaved}</span></div>
 </div>
 
-<div class="cols">
-  <section class="card recent">
+<div class="lower">
+  <section class="recent">
     <div class="rhead">
-      <h3>Recent</h3>
-      <span class="faint small">Drag over words to teach Fluss a correction</span>
+      <span class="label"><b>◆</b> Recent</span>
+      <span class="label">Drag across words to teach a correction</span>
     </div>
     {#if history.length === 0}
       <div class="empty">
-        <Icon name="wave" size={28} />
-        <p>Your dictations show up here for a while. They're kept in memory only.</p>
+        <p class="display">Nothing yet.</p>
+        <p class="faint">Your dictations appear here for a while — kept in memory only, never written to disk.</p>
       </div>
     {:else}
       <ul>
         {#each history as h (h.id)}
-          <li animate:flip={{ duration: 250 }} in:fly={{ y: -8, duration: 250 }}>
+          <li animate:flip={{ duration: 140 }} in:fly={{ y: -4, duration: 140 }}>
             <div class="meta">
-              <span class="app">{h.app || "Unknown app"}</span>
-              <span class="faint">· {ago(h.at)} · {h.latency_ms} ms</span>
+              <span class="app">{h.app || "unknown"}</span>
+              <span>{ago(h.at)}</span>
+              <span>{h.latency_ms} ms</span>
               <span class="grow"></span>
               {#if selText(h)}
-                <button class="btn primary sm" in:fade={{ duration: 100 }} onclick={() => ((sheet = { heard: selText(h) }), (sel = null))}>
-                  <Icon name="sparkles" size={13} />Fix “{selText(h)}”
-                </button>
+                <button class="btn primary sm" in:fade={{ duration: 90 }} onclick={() => ((sheet = { heard: selText(h) }), (sel = null))}>Fix “{selText(h)}”</button>
               {:else}
                 <button class="btn ghost sm" onclick={() => copy(h.text)}>Copy</button>
               {/if}
@@ -213,7 +201,7 @@
               {/each}
             </p>
             {#if h.raw && h.raw !== h.text}
-              <p class="final faint">heard as “{h.raw}”</p>
+              <p class="final">heard as “{h.raw}”</p>
             {/if}
           </li>
         {/each}
@@ -221,30 +209,30 @@
     {/if}
   </section>
 
-  <aside class="card keys">
-    <h3>Shortcuts</h3>
+  <aside class="keys">
+    <div class="rhead"><span class="label"><b>◆</b> Shortcuts</span></div>
     <div class="kitem">
       <div>
         <div class="kt">Dictate</div>
-        <div class="faint small">Hold, speak, release</div>
+        <div class="ks">Hold, speak, release</div>
       </div>
       <Keys combo={s?.hotkeys.push_to_talk ?? ""} size="sm" />
     </div>
     <div class="kitem">
       <div>
         <div class="kt">Hands-free</div>
-        <div class="faint small">Until you press again</div>
+        <div class="ks">Until you press again</div>
       </div>
       <Keys combo={s?.hotkeys.hands_free ?? ""} size="sm" />
     </div>
     <div class="kitem">
       <div>
         <div class="kt">Fix a word</div>
-        <div class="faint small">Right after Fluss gets it wrong</div>
+        <div class="ks">Right after it goes wrong</div>
       </div>
       <Keys combo={s?.hotkeys.add_rule ?? ""} size="sm" />
     </div>
-    <button class="btn ghost full" onclick={() => (app.page = "shortcuts")}>Change shortcuts <Icon name="chevron" size={14} /></button>
+    <button class="btn ghost sm more" onclick={() => (app.page = "shortcuts")}>Change shortcuts →</button>
   </aside>
 </div>
 
@@ -254,52 +242,36 @@
 
 <style>
   .hero {
-    position: relative;
-    overflow: hidden;
-    border-radius: 22px;
-    min-height: 236px;
     display: flex;
     align-items: center;
-    background:
-      radial-gradient(600px 260px at 15% 50%, rgba(34, 211, 238, 0.1), transparent 70%),
-      var(--surface);
-    transition: box-shadow 600ms var(--ease), border-color 600ms;
+    gap: 40px;
+    padding: 4px 0 26px;
+    border-bottom: 1px solid var(--rule);
+    flex: none;
   }
-  .hero.live {
-    border-color: rgba(45, 212, 191, 0.35);
-    box-shadow:
-      var(--shadow),
-      0 0 60px -20px rgba(34, 211, 238, 0.5);
-  }
-  .hero-in {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 34px;
-    padding: 32px 40px;
-    width: 100%;
+  .iris {
+    flex: none;
+    margin-left: -6px;
   }
   .hero-txt {
     min-width: 0;
     flex: 1;
   }
-  .eyebrow {
+  .readout {
     display: flex;
-    gap: 6px;
     flex-wrap: wrap;
-    margin-bottom: 12px;
+    gap: 4px 18px;
   }
   h1 {
-    font-size: 32px;
-    font-weight: 720;
-    letter-spacing: -0.035em;
+    font-size: 58px;
+    margin-top: 16px;
   }
   .sub {
-    margin: 8px 0 0;
+    margin-top: 14px;
     color: var(--text-2);
-    font-size: 14.5px;
-    max-width: 520px;
-    min-height: 21px;
+    font-size: 14px;
+    max-width: 480px;
+    min-height: 20px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
@@ -308,13 +280,13 @@
   }
   .sub.partial {
     color: var(--text);
-    font-size: 16px;
+    font-size: 15px;
   }
   .cta {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-top: 18px;
+    margin-top: 20px;
   }
   .hold {
     color: var(--text-2);
@@ -322,64 +294,63 @@
   .stats {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-top: 14px;
+    border-bottom: 1px solid var(--rule);
+    flex: none;
   }
   .stat {
-    padding: 14px 16px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 6px;
+    padding: 16px 0 16px 20px;
   }
-  .k {
-    font-size: 12px;
-    color: var(--text-3);
-    font-weight: 550;
+  .stat:first-child {
+    padding-left: 0;
+  }
+  .stat + .stat {
+    border-left: 1px solid var(--rule);
   }
   .v {
-    font-size: 24px;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    font-variant-numeric: tabular-nums;
+    font-size: 26px;
+    line-height: 1;
+    font-weight: 400;
+    letter-spacing: -0.02em;
   }
   .v small {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-3);
-    font-weight: 600;
+    margin-left: 3px;
+    letter-spacing: 0;
   }
-  .cols {
+  .lower {
+    flex: 1;
+    min-height: 0;
     display: grid;
-    grid-template-columns: 1fr 290px;
-    gap: 14px;
-    margin-top: 14px;
-    align-items: start;
+    grid-template-columns: 1fr 268px;
   }
   .recent {
-    padding: 18px 4px 6px 18px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding-right: 24px;
+    border-right: 1px solid var(--rule);
   }
   .rhead {
     display: flex;
-    align-items: baseline;
     justify-content: space-between;
-    padding-right: 18px;
-    margin-bottom: 8px;
-  }
-  h3 {
-    font-size: 15px;
-  }
-  .small {
-    font-size: 12px;
+    align-items: baseline;
+    padding: 16px 0 6px;
+    flex: none;
   }
   ul {
     list-style: none;
     margin: 0;
-    padding: 0 14px 0 0;
-    max-height: 340px;
+    padding: 0 6px 0 0;
     overflow: auto;
+    min-height: 0;
   }
   li {
-    padding: 12px 0;
-    border-top: 1px solid var(--border);
+    padding: 11px 0;
+    border-top: 1px solid var(--rule);
   }
   li:first-child {
     border-top: 0;
@@ -387,87 +358,78 @@
   .meta {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 12px;
+    gap: 14px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
     min-height: 26px;
   }
   .app {
-    font-weight: 600;
-    color: var(--text-2);
+    color: var(--gold-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
   }
   .grow {
     flex: 1;
   }
-  .btn.sm {
-    height: 26px;
-    padding: 0 10px;
-    font-size: 12px;
-    border-radius: 8px;
-  }
   .txt {
-    margin: 4px 0 0;
+    margin-top: 3px;
     font-size: 14px;
     line-height: 1.55;
     cursor: text;
   }
   .w {
-    border-radius: 4px;
     padding: 1px 0;
-    transition: background 100ms;
+    transition: background var(--t1), color var(--t1);
   }
   .w:hover {
-    background: var(--surface-2);
+    color: var(--gold);
   }
   .w.on {
-    background: rgba(45, 212, 191, 0.25);
-    box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.25);
+    background: var(--gold);
+    color: var(--gold-ink);
   }
   .final {
-    margin: 4px 0 0;
-    font-size: 12.5px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    margin-top: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
   }
   .empty {
-    padding: 30px 18px 34px 0;
+    padding: 28px 0;
     display: grid;
-    justify-items: center;
     gap: 8px;
-    color: var(--text-3);
-    text-align: center;
+    max-width: 380px;
+  }
+  .empty .display {
+    font-size: 26px;
+    color: var(--text-2);
   }
   .keys {
-    padding: 18px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-  }
-  .keys h3 {
-    margin-bottom: 6px;
+    padding-left: 24px;
   }
   .kitem {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
+    padding: 12px 0;
+    border-bottom: 1px solid var(--rule);
   }
   .kt {
-    font-weight: 600;
-    font-size: 13px;
+    font-size: 13.5px;
   }
-  .full {
-    justify-content: center;
-    margin-top: 8px;
+  .ks {
+    font-size: 11.5px;
+    color: var(--text-3);
+    margin-top: 1px;
   }
-  @media (max-width: 1000px) {
-    .cols {
-      grid-template-columns: 1fr;
-    }
-    .stats {
-      grid-template-columns: repeat(2, 1fr);
-    }
+  .more {
+    align-self: flex-start;
+    margin-top: 12px;
+    margin-left: -11px;
   }
 </style>

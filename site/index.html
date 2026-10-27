@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fluss — local dictation for Windows</title>
+<meta name="description" content="Hold Ctrl+Win, speak, release. Fluss writes what you said wherever your cursor is — locally, on your own machine, in tens of milliseconds. Free and open source.">
+<meta name="theme-color" content="#000000">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Fluss — local dictation for Windows">
+<meta property="og:description" content="Hold Ctrl+Win, speak, release. Private, local speech-to-text that types where your cursor is. Free, MIT.">
+<meta property="og:image" content="/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/Geist-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/GeistMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <a class="mark" href="#top" aria-label="Fluss, back to top"><span class="mark-glyph" aria-hidden="true">◆</span>FLUSS</a>
+  <nav aria-label="Sections">
+    <a href="#flow">Flow</a>
+    <a href="#seam">Seams</a>
+    <a href="#fix">Corrections</a>
+    <a href="#models">Models</a>
+    <a href="#cli">CLI</a>
+  </nav>
+  <a class="bar-gh" href="https://github.com/mflRevan/fluss">GitHub <span aria-hidden="true">↗</span></a>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top" aria-labelledby="hero-title">
+  <div class="hero-copy">
+    <p class="label"><span class="idx">00</span> Local dictation for Windows</p>
+    <h1 id="hero-title">Hold a key.<br>Speak.<br><em>It’s written.</em></h1>
+    <p class="lede">Fluss turns your voice into text wherever your cursor is — on your own machine, in tens of milliseconds. Nothing leaves your PC.</p>
+    <div class="cta">
+      <a class="btn btn-gold" href="https://github.com/mflRevan/fluss/releases/latest">Download for Windows</a>
+      <a class="btn btn-line chamfer" href="https://github.com/mflRevan/fluss">Source on GitHub</a>
+    </div>
+    <p class="meta">Windows 10/11 <span>·</span> free <span>·</span> MIT <span>·</span> 4 MB installer</p>
+  </div>
+
+  <figure class="instrument" aria-label="Fluss voice visual">
+    <div class="instrument-frame">
+      <canvas id="iris" width="560" height="560" aria-hidden="true"></canvas>
+      <span class="corner tl" aria-hidden="true"></span><span class="corner tr" aria-hidden="true"></span>
+      <span class="corner bl" aria-hidden="true"></span><span class="corner br" aria-hidden="true"></span>
+    </div>
+    <figcaption class="readout">
+      <div><span>Source</span><b id="ro-src">simulated</b></div>
+      <div><span>Level</span><b id="ro-level">−∞ dB</b></div>
+      <div><span>Decode</span><b>21 ms</b></div>
+      <button class="mic-btn" id="mic-btn" type="button">Try with your mic</button>
+    </figcaption>
+  </figure>
+</section>
+
+<section class="sect" id="flow" aria-labelledby="flow-title">
+  <header class="sect-head">
+    <p class="label"><span class="idx">01</span> The flow</p>
+    <h2 id="flow-title">Three motions. No window to switch to.</h2>
+  </header>
+  <div class="flow">
+    <ol class="steps" id="steps">
+      <li data-step="0"><span class="step-n">1</span><span class="step-t">Hold <kbd>Ctrl</kbd><kbd>Win</kbd></span><span class="step-d">anywhere, in any app</span></li>
+      <li data-step="1"><span class="step-n">2</span><span class="step-t">Speak</span><span class="step-d">a live preview follows you</span></li>
+      <li data-step="2"><span class="step-n">3</span><span class="step-t">Release</span><span class="step-d">the text is typed at your cursor</span></li>
+    </ol>
+    <div class="stage" aria-hidden="true">
+      <div class="field">
+        <span class="field-label">Message</span>
+        <p class="field-text"><span id="typed"></span><span class="caret"></span></p>
+      </div>
+      <div class="pill chamfer" id="pill">
+        <canvas class="pill-iris" id="pill-iris" width="64" height="64"></canvas>
+        <span class="pill-status" id="pill-status">REC</span>
+        <span class="pill-text" id="pill-text"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sect" id="seam" aria-labelledby="seam-title">
+  <header class="sect-head">
+    <p class="label"><span class="idx">02</span> Continuation</p>
+    <h2 id="seam-title">A pause is not a full stop.</h2>
+  </header>
+  <div class="split">
+    <div class="prose">
+      <p>Every speech model guesses a period when you stop talking. When you keep going — after a breath in hands-free mode, or with a second press into the same text field — Fluss re-reads the last seconds of your previous audio together with the new audio, so the model itself decides how the two connect.</p>
+      <p>Only the punctuation at the seam is changed. Words already typed are never rewritten, and nothing is edited if you clicked or typed in between.</p>
+    </div>
+    <figure class="seam" aria-label="Seam repair example">
+      <div class="seam-row">
+        <span class="seam-tag">First press</span>
+        <p>…and the tests look good<span class="seam-punct" id="seam-punct">.</span></p>
+      </div>
+      <div class="seam-row">
+        <span class="seam-tag">Second press</span>
+        <p><span class="seam-new" id="seam-new">and then we deploy on Friday.</span></p>
+      </div>
+      <div class="seam-row seam-out">
+        <span class="seam-tag">Typed</span>
+        <p id="seam-out">…and the tests look good<b>,</b> and then we deploy on Friday.</p>
+      </div>
+      <figcaption class="note">joint decode · 3 s of context · −1 char, +“,”</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="sect" id="fix" aria-labelledby="fix-title">
+  <header class="sect-head">
+    <p class="label"><span class="idx">03</span> One-second corrections</p>
+    <h2 id="fix-title">Teach it a word without leaving the sentence.</h2>
+  </header>
+  <div class="split split-rev">
+    <figure class="fix" aria-label="Correction example">
+      <p class="fix-line">I moved my laptop to <span class="chunk">on March 9<span class="chunk-tag">chunk · 3 words · 0.41 s</span></span> last week.</p>
+      <div class="popup chamfer">
+        <div class="popup-row"><span class="popup-k">Heard</span><span class="popup-chip">on March 9</span></div>
+        <div class="popup-row"><span class="popup-k">Should be</span><span class="popup-input">Omarchy<span class="caret"></span></span></div>
+        <div class="popup-foot"><span><kbd>Enter</kbd> save</span><span><kbd>Ctrl</kbd><kbd>←</kbd><kbd>→</kbd> adjust</span><span><kbd>Tab</kbd> another spelling</span></div>
+      </div>
+      <p class="fix-line fix-after">I moved my laptop to <b>Omarchy</b> last week.</p>
+    </figure>
+    <div class="prose">
+      <p>Right after a word comes out wrong, press <kbd>Ctrl</kbd><kbd>Win</kbd><kbd>R</kbd>. The popup already holds what you just said — not the last word, the last spoken <em>chunk</em>, found from timing, pauses, audio energy and confidence. Your cursor waits in “Should be”.</p>
+      <p>Type the spelling, press Enter. The rule is saved, the dictation you just made is corrected in place, and the word is passed to the model as a hotword from then on.</p>
+    </div>
+  </div>
+</section>
+
+<section class="sect" id="buffers" aria-labelledby="buffers-title">
+  <header class="sect-head">
+    <p class="label"><span class="idx">04</span> Pre-roll and post-roll</p>
+    <h2 id="buffers-title">It hears the word you started too early.</h2>
+  </header>
+  <figure class="timeline" aria-label="Timeline: audio is kept from 0.5 seconds before the key is pressed until 0.5 seconds after it is released">
+    <div class="tl-scroll"><svg viewBox="0 0 1000 200" role="img" aria-hidden="true">
+      <g class="tl-grid">
+        <line x1="40" y1="140" x2="960" y2="140"/>
+      </g>
+      <g class="tl-ticks" id="tl-ticks"></g>
+      <g class="tl-wave" id="tl-wave"></g>
+      <g class="tl-keys">
+        <line x1="260" y1="30" x2="260" y2="140"/>
+        <line x1="760" y1="30" x2="760" y2="140"/>
+        <text x="266" y="36">KEY DOWN</text>
+        <text x="766" y="36">KEY UP</text>
+      </g>
+      <g class="tl-span">
+        <path d="M150 162 V170 H870 V162"/>
+        <text x="150" y="192">−0.5 S PRE-ROLL</text>
+        <text x="510" y="192" text-anchor="middle" class="tl-cap">CAPTURED</text>
+        <text x="870" y="192" text-anchor="end">+0.5 S POST-ROLL</text>
+      </g>
+    </svg></div>
+  </figure>
+  <p class="caption">A short ring buffer keeps the last half second before you press, and listening continues briefly after you let go. Both lengths are adjustable. If you had already stopped speaking when you released, the text is typed immediately.</p>
+</section>
+
+<section class="sect" id="models" aria-labelledby="models-title">
+  <header class="sect-head">
+    <p class="label"><span class="idx">05</span> Models</p>
+    <h2 id="models-title">Pick the engine. Keep it warm or let it sleep.</h2>
+  </header>
+  <div class="table-wrap">
+    <table class="models">
+      <thead>
+        <tr><th scope="col">Model</th><th scope="col">Download</th><th scope="col">Runs on</th><th scope="col">Languages</th><th scope="col">Per phrase</th></tr>
+      </thead>
+      <tbody>
+        <tr class="is-default"><th scope="row">Phonon 2.5 English <span class="tag">default</span></th><td>158 MB</td><td>CPU</td><td>English</td><td>~20 ms short · ~115 ms for 10 s</td></tr>
+        <tr><th scope="row">Phonon 2.5 Multilingual</th><td>170 MB</td><td>CPU</td><td>25 European</td><td>CPU, as above</td></tr>
+        <tr><th scope="row">Parakeet TDT 0.6B v3</th><td>2.5 GB</td><td>GPU (DirectML) or CPU</td><td>25 European</td><td>~40–55 ms on GPU</td></tr>
+        <tr><th scope="row">Custom endpoint</th><td>—</td><td>anywhere</td><td>depends</td><td>any OpenAI-compatible server</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="caption">Keep the model loaded, unload it after idle minutes (20 by default), or load it only while dictating. If it is asleep when you press, recording starts anyway and the text arrives once it has loaded.</p>
+</section>
+
+<section class="sect" id="local" aria-labelledby="local-title">
+  <header class="sect-head">
+    <p class="label"><span class="idx">06</span> Local by design</p>
+    <h2 id="local-title">Small, quiet, yours.</h2>
+  </header>
+  <dl class="figures">
+    <div><dt>Audio sent anywhere</dt><dd>0 bytes</dd><p>Recognition runs on your CPU or GPU. A cloud endpoint is used only if you configure one.</p></div>
+    <div><dt>Background app</dt><dd>~38 MB</dd><p>A Rust process with a native overlay. The settings window only runs while it is open.</p></div>
+    <div><dt>Installer</dt><dd>4 MB</dd><p>Models download during setup, into a folder you can delete. No account, no telemetry.</p></div>
+  </dl>
+</section>
+
+<section class="sect" id="cli" aria-labelledby="cli-title">
+  <header class="sect-head">
+    <p class="label"><span class="idx">07</span> Command line</p>
+    <h2 id="cli-title">Everything is scriptable.</h2>
+  </header>
+  <div class="split">
+    <pre class="code" tabindex="0"><code><span class="c"># what Fluss is doing right now</span>
+<b>fluss</b> status --watch
+
+<span class="c"># change any setting</span>
+<b>fluss</b> config set audio.preroll_ms 300
+
+<span class="c"># teach it a word</span>
+<b>fluss</b> rules add Omarchy --heard "on march 9"
+
+<span class="c"># switch engine, install, transcribe a file</span>
+<b>fluss</b> model use parakeet-v3 &amp;&amp; <b>fluss</b> model install
+<b>fluss</b> transcribe meeting.wav
+
+<span class="c"># diagnose</span>
+<b>fluss</b> doctor</code></pre>
+    <ol class="install">
+      <li><span class="step-n">1</span><div><b>Download the installer</b><p>From the <a href="https://github.com/mflRevan/fluss/releases/latest">latest release</a>. No admin rights needed.</p></div></li>
+      <li><span class="step-n">2</span><div><b>Pick a microphone and a model</b><p>Setup downloads the model and keeps it on your machine.</p></div></li>
+      <li><span class="step-n">3</span><div><b>Hold <kbd>Ctrl</kbd><kbd>Win</kbd> and speak</b><p>Fluss starts with Windows and lives in the tray.</p></div></li>
+    </ol>
+  </div>
+</section>
+
+<section class="sect" id="credits" aria-labelledby="credits-title">
+  <header class="sect-head">
+    <p class="label"><span class="idx">08</span> Credits</p>
+    <h2 id="credits-title">Built on good work.</h2>
+  </header>
+  <ul class="credits">
+    <li><a href="https://huggingface.co/FermionResearch">Phonon 2.5</a><span>Fermion Research · CC-BY-4.0</span></li>
+    <li><a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">Parakeet TDT 0.6B v3</a><span>NVIDIA · CC-BY-4.0</span></li>
+    <li><a href="https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx">Parakeet ONNX export</a><span>istupakov</span></li>
+    <li><a href="https://vercel.com/font">Geist &amp; Geist Mono</a><span>Vercel · OFL</span></li>
+    <li><a href="https://zon.sh/licht">Licht Serif</a><span>zon.sh</span></li>
+    <li><a href="https://tauri.app">Tauri</a><span>settings app</span></li>
+    <li><a href="https://svelte.dev">Svelte</a><span>interface</span></li>
+    <li><a href="https://onnxruntime.ai">ONNX Runtime</a><span>Microsoft · inference</span></li>
+  </ul>
+</section>
+
+</main>
+
+<footer class="foot">
+  <p class="foot-big">Fluss <span>— German for river.</span></p>
+  <div class="foot-row">
+    <span>MIT licensed · © 2026 mflRevan</span>
+    <a href="https://github.com/mflRevan/fluss">github.com/mflRevan/fluss ↗</a>
+  </div>
+</footer>
+
+<script src="/main.js" defer></script>
+</body>
+</html>

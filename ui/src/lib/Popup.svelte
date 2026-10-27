@@ -2,9 +2,10 @@
   // The "fix a word" popup. Opens pre-filled with what you just said; the
   // cursor is already in "Should be"; Enter saves. Built for one-second edits.
   import { onMount, tick } from "svelte";
-  import { fade, fly, scale } from "svelte/transition";
+  import { fade, fly } from "svelte/transition";
   import { call, inTauri, invoke } from "./backend";
-  import Icon from "./components/Icon.svelte";
+  import Keys from "./components/Keys.svelte";
+  import Logo from "./components/Logo.svelte";
   import { applyTheme, app } from "./state.svelte";
   import type { Config, PopupContext, Rule, SearchHit, UpsertOutcome } from "./types";
 
@@ -208,17 +209,17 @@
 
 <div class="stage" class:dev={!inTauri}>
   {#if shown}
-    <div class="pop" use:fitWindow in:scale={{ start: 0.94, duration: 180, opacity: 0 }} out:fade={{ duration: 100 }}>
+    <div class="pop" use:fitWindow in:fly={{ y: 6, duration: 140, opacity: 0 }} out:fade={{ duration: 80 }}>
       <div class="head">
-        <span class="spark"><Icon name="sparkles" size={15} /></span>
-        <span class="title">Fix a word</span>
+        <Logo size={16} />
+        <span class="label title">Fix a word</span>
         <span class="grow"></span>
-        <span class="hint"><kbd>Enter</kbd> save · <kbd>Esc</kbd> close</span>
+        <span class="hint"><Keys combo="Enter" size="sm" /> save <Keys combo="Esc" size="sm" /> close</span>
       </div>
 
-      <div class="lbl">
-        Heard
-        {#if words.length}<span class="faint"><kbd>Ctrl</kbd>+<kbd>←</kbd><kbd>→</kbd> adjust</span>{/if}
+      <div class="lbl label">
+        <span>Heard</span>
+        {#if words.length}<span class="adj"><Keys combo="Ctrl" size="sm" /><kbd>←</kbd><kbd>→</kbd> adjust</span>{/if}
       </div>
       <div class="heard">
         {#if words.length === 0}
@@ -228,51 +229,42 @@
           <button class="w" class:sel={k >= start && k < end} class:first={k === start} class:last={k === end - 1} tabindex="-1" onclick={(e) => clickWord(k, e)}>{w}</button>
         {/each}
       </div>
-      {#if extra.length || variantDraft || document.activeElement === variantEl}
-        <div class="extra" transition:fly={{ y: -4, duration: 140 }}>
+      {#if extra.length}
+        <div class="extra" transition:fly={{ y: -4, duration: 110 }}>
           {#each extra as v, k}
-            <span class="chip">{v}<button tabindex="-1" aria-label="Remove" onclick={() => (extra = extra.filter((_, j) => j !== k))}><Icon name="x" size={11} stroke={2.4} /></button></span>
+            <span class="chip mono">{v}<button tabindex="-1" aria-label="Remove" onclick={() => (extra = extra.filter((_, j) => j !== k))}>×</button></span>
           {/each}
         </div>
       {/if}
 
-      <div class="lbl">Should be</div>
+      <div class="lbl label"><span>Should be</span></div>
       <div class="field" class:ok={!!saved} class:err={!!error}>
         <input
           bind:this={targetEl}
           bind:value={target}
           onkeydown={onTargetKey}
-          placeholder={heard ? `What did you mean instead of “${heard}”?` : "The right spelling"}
+          class="display"
+          placeholder={heard ? `instead of “${heard}”` : "the right spelling"}
           spellcheck="false"
           autocomplete="off"
         />
         {#if saved}
-          <span class="savedmark" in:scale={{ start: 0.4, duration: 260 }}><Icon name="check" size={16} stroke={2.6} /></span>
+          <span class="savedmark" in:fade={{ duration: 90 }}>◆</span>
         {/if}
       </div>
-      <input
-        bind:this={variantEl}
-        bind:value={variantDraft}
-        onkeydown={onVariantKey}
-        class="variant"
-        placeholder="Tab: add another way it gets misheard"
-        spellcheck="false"
-        autocomplete="off"
-      />
+      <input bind:this={variantEl} bind:value={variantDraft} onkeydown={onVariantKey} class="variant mono" placeholder="tab — add another way it gets misheard" spellcheck="false" autocomplete="off" />
 
-      <div class="foot">
+      <div class="foot mono">
         {#if error}
-          <span class="msg err" in:fade>{error}</span>
+          <span class="msg err" in:fade={{ duration: 90 }}>{error}</span>
         {:else if saved}
-          <span class="msg ok" in:fade>{saved.text} {target.trim()}{ctx?.can_apply_last ? " · fixed your last dictation" : ""}</span>
+          <span class="msg ok" in:fade={{ duration: 90 }}>◆ {saved.text.toLowerCase()} {target.trim()}{ctx?.can_apply_last ? " · fixed your last dictation" : ""}</span>
         {:else if exact}
-          <span class="msg" in:fade>
-            <Icon name="sparkles" size={13} /> Adding to <b>{exact.target}</b>{exact.variants.length ? ` — already: ${exact.variants.slice(0, 3).join(", ")}` : ""}
-          </span>
+          <span class="msg ok" in:fade={{ duration: 90 }}>◆ adds to {exact.target}{exact.variants.length ? ` — already: ${exact.variants.slice(0, 3).join(", ")}` : ""}</span>
         {:else if target.trim()}
-          <span class="msg faint" in:fade>New rule: {variants.map((v) => `“${v}”`).join(", ") || "spelling only"} → <b>{target.trim()}</b></span>
+          <span class="msg" in:fade={{ duration: 90 }}>new rule · {variants.map((v) => `“${v}”`).join(", ") || "spelling only"} → {target.trim()}</span>
         {:else}
-          <span class="msg faint">Type the right spelling — existing words show up as you type</span>
+          <span class="msg">existing words appear as you type</span>
         {/if}
       </div>
 
@@ -280,8 +272,8 @@
         <div class="hits">
           {#each hits as h, k (h.rule.target)}
             <button class="hit" class:hi={k === hi} tabindex="-1" onclick={() => pickHit(h.rule)}>
-              <b>{h.rule.target}</b>
-              <span class="faint">{h.rule.variants.length ? h.rule.variants.join(", ") : "spelling only"}</span>
+              <span class="ht">{h.rule.target}</span>
+              <span class="hv mono">{h.rule.variants.length ? h.rule.variants.join(", ") : "spelling only"}</span>
             </button>
           {/each}
         </div>
@@ -298,246 +290,212 @@
     padding: 18px;
   }
   .stage.dev {
-    background:
-      radial-gradient(900px 500px at 30% 20%, #1d3b4a, transparent 60%),
-      radial-gradient(700px 500px at 80% 90%, #3a2a5a, transparent 60%),
-      #0c1218;
+    background: #15130f;
   }
   .pop {
+    --c: 14px;
     width: 564px;
-    padding: 16px 18px 14px;
-    border-radius: 20px;
-    /* Opaque: a transparent native window can't blur the desktop behind it. */
-    background:
-      radial-gradient(420px 160px at 0% 0%, rgba(34, 211, 238, 0.08), transparent 70%),
-      var(--surface-solid);
-    box-shadow: 0 0 0 1px var(--border-2), 0 12px 32px -12px rgba(0, 0, 0, 0.6);
+    padding: 16px 20px 16px;
+    background: var(--void);
+    border-top: 1px solid var(--gold);
+    box-shadow: inset 0 0 0 1px var(--rule-strong);
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%);
   }
   .head {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-  }
-  .spark {
-    width: 26px;
-    height: 26px;
-    border-radius: 8px;
-    display: grid;
-    place-items: center;
-    background: var(--flow);
-    color: #031615;
+    gap: 10px;
+    margin-bottom: 4px;
   }
   .title {
-    font-weight: 650;
-    font-size: 14px;
+    color: var(--gold);
   }
   .grow {
     flex: 1;
   }
+  .adj kbd {
+    display: inline-grid;
+    place-items: center;
+    width: 19px;
+    height: 19px;
+    border: 1px solid var(--rule-strong);
+    border-bottom-color: var(--gold-dim);
+    color: var(--text);
+    font-size: 10px;
+    margin-left: -2px;
+  }
   .hint,
-  .lbl .faint {
-    font-size: 11.5px;
+  .adj {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
     color: var(--text-3);
     text-transform: none;
-    letter-spacing: 0;
-    font-weight: 500;
-  }
-  kbd {
-    font-family: var(--font);
-    font-size: 10.5px;
-    padding: 0 5px;
-    border-radius: 4px;
-    border: 1px solid var(--border-2);
-    background: var(--surface-2);
+    letter-spacing: 0.04em;
   }
   .lbl {
     display: flex;
     justify-content: space-between;
-    font-size: 11.5px;
-    font-weight: 650;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-3);
-    margin: 10px 0 6px;
+    align-items: center;
+    margin: 14px 0 8px;
   }
   .heard {
     display: flex;
     flex-wrap: wrap;
-    gap: 0;
-    min-height: 34px;
+    min-height: 32px;
     align-items: center;
     font-size: 15px;
   }
   .w {
+    position: relative;
     border: 0;
     background: transparent;
-    padding: 4px 5px;
+    padding: 4px 4px;
     margin: 0;
     color: var(--text-2);
-    border-radius: 0;
-    transition:
-      background 120ms,
-      color 120ms;
+    transition: color var(--t1), background var(--t1);
   }
   .w:hover {
     color: var(--text);
   }
   .w.sel {
-    background: rgba(45, 212, 191, 0.2);
-    color: var(--text);
-    font-weight: 600;
+    color: var(--gold);
+    background: var(--gold-wash);
   }
-  .w.sel.first {
-    border-radius: 8px 0 0 8px;
-    box-shadow: inset 2px 0 0 var(--accent);
+  .w.sel.first::before,
+  .w.sel.last::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    border: 1px solid var(--gold);
   }
-  .w.sel.last {
-    border-radius: 0 8px 8px 0;
+  .w.sel.first::before {
+    left: 0;
+    border-right: 0;
   }
-  .w.sel.first.last {
-    border-radius: 8px;
-    box-shadow: inset 2px 0 0 var(--accent);
+  .w.sel.last::after {
+    right: 0;
+    border-left: 0;
   }
   .extra {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
     margin-top: 6px;
   }
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    height: 24px;
-    padding: 0 3px 0 9px;
-    border-radius: 7px;
-    background: var(--surface-3);
-    font-size: 12.5px;
+    gap: 3px;
+    height: 22px;
+    padding: 0 3px 0 8px;
+    border: 1px solid var(--rule-strong);
+    font-size: 11px;
   }
   .chip button {
     border: 0;
     background: transparent;
     color: var(--text-3);
-    display: grid;
-    width: 18px;
-    height: 18px;
-    place-items: center;
+  }
+  .chip button:hover {
+    color: var(--danger);
   }
   .field {
     position: relative;
-    border-radius: 12px;
-    background:
-      linear-gradient(var(--surface-solid), var(--surface-solid)) padding-box,
-      var(--flow) border-box;
-    border: 1.5px solid transparent;
-    box-shadow: 0 0 0 4px rgba(45, 212, 191, 0.12);
-    transition: box-shadow 200ms;
-  }
-  .field.ok {
-    box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.25);
+    border-bottom: 1px solid var(--gold);
   }
   .field.err {
-    background:
-      linear-gradient(var(--surface-solid), var(--surface-solid)) padding-box,
-      var(--rose) border-box;
+    border-bottom-color: var(--danger);
   }
   .field input {
     width: 100%;
-    height: 46px;
-    padding: 0 44px 0 14px;
+    height: 52px;
+    padding: 0 36px 0 2px;
     border: 0;
     outline: none;
     background: transparent;
-    font-size: 18px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-size: 34px;
+    color: var(--gold);
   }
   .field input::placeholder {
-    font-weight: 450;
-    font-size: 14px;
     color: var(--text-3);
+    font-size: 26px;
   }
   .savedmark {
     position: absolute;
-    right: 10px;
-    top: 10px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    background: var(--green);
-    color: #04210f;
+    right: 6px;
+    top: 14px;
+    color: var(--gold);
+    font-size: 16px;
   }
   .variant {
     width: 100%;
-    margin-top: 8px;
+    margin-top: 10px;
     height: 30px;
-    padding: 0 12px;
-    border-radius: 8px;
-    border: 1px dashed var(--border-2);
+    padding: 0 10px;
+    border: 1px dashed var(--rule-strong);
     background: transparent;
     outline: none;
-    font-size: 12.5px;
+    font-size: 11.5px;
   }
   .variant:focus {
     border-style: solid;
-    border-color: var(--accent);
+    border-color: var(--gold-dim);
   }
   .variant::placeholder {
     color: var(--text-3);
   }
   .foot {
-    min-height: 22px;
-    margin-top: 8px;
+    min-height: 18px;
+    margin-top: 10px;
   }
   .msg {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12.5px;
-    color: var(--accent-text);
-  }
-  .msg.faint {
+    font-size: 11px;
     color: var(--text-3);
-  }
-  .msg.err {
-    color: var(--rose);
+    letter-spacing: 0.02em;
   }
   .msg.ok {
-    color: var(--green);
+    color: var(--gold);
+  }
+  .msg.err {
+    color: var(--danger);
   }
   .hits {
     display: flex;
     flex-direction: column;
-    margin-top: 6px;
-    border-top: 1px solid var(--border);
-    padding-top: 6px;
+    margin-top: 10px;
+    border-top: 1px solid var(--rule);
   }
   .hit {
     display: flex;
     align-items: baseline;
-    gap: 10px;
-    padding: 6px 8px;
+    gap: 14px;
+    padding: 7px 8px;
     border: 0;
-    border-radius: 8px;
+    border-bottom: 1px solid var(--rule);
     background: transparent;
     text-align: left;
-    font-size: 13px;
     white-space: nowrap;
     overflow: hidden;
   }
-  .hit span {
+  .ht {
+    font-size: 13.5px;
+  }
+  .hv {
+    font-size: 10.5px;
+    color: var(--text-3);
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 12px;
   }
   .hit:hover,
   .hit.hi {
-    background: var(--surface-2);
+    background: var(--gold-wash);
   }
-  .hit.hi b {
-    color: var(--accent-text);
+  .hit.hi .ht {
+    color: var(--gold);
   }
 </style>

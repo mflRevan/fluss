@@ -1,12 +1,52 @@
 name: CI
 
+# Fast by default: cached Rust tests only, and only when Rust code changed.
+# The full cross-platform build (incl. the Tauri app) runs on demand:
+# Actions -> CI -> "Run workflow". Run `scripts/check.ps1` locally before pushing.
 on:
   push:
     branches: [main]
+    paths: ["crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/ci.yml"]
   pull_request:
+    paths: ["crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/ci.yml"]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Also build everything (UI + Tauri) on Windows, Linux and macOS"
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
 
 jobs:
-  test:
+  core:
+    name: core (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p fluss-core
+
+  daemon:
+    name: daemon + cli (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p fluss-daemon
+      - run: cargo check -p fluss-cli
+
+  full:
+    name: full build (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.full
     strategy:
       fail-fast: false
       matrix:
@@ -15,9 +55,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
       - name: Linux system libraries
         if: runner.os == 'Linux'
         run: |
@@ -26,7 +69,5 @@ jobs:
       - name: Build UI
         working-directory: ui
         run: npm ci && npm run build
-      - name: Test core and daemon
-        run: cargo test -p fluss-core -p fluss-daemon
-      - name: Build all
-        run: cargo build --workspace
+      - run: cargo test -p fluss-core -p fluss-daemon
+      - run: cargo build --workspace

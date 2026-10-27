@@ -1,7 +1,6 @@
 <script lang="ts">
   import { fade } from "svelte/transition";
   import { call } from "../backend";
-  import Icon from "../components/Icon.svelte";
   import PageHeader from "../components/PageHeader.svelte";
   import Segmented from "../components/Segmented.svelte";
   import Setting from "../components/Setting.svelte";
@@ -32,104 +31,106 @@
   });
 </script>
 
-<PageHeader title="Text" subtitle="How Fluss cleans up what you say before it types it." />
+<PageHeader index="06" title="Text" subtitle="How Fluss cleans up what you say before it types it." />
 
-<div class="try card">
+<div class="cols">
   <div class="col">
-    <div class="lbl"><Icon name="mic" size={14} />What you say</div>
-    <textarea bind:value={sample} rows="3" spellcheck="false"></textarea>
+    <div class="group">
+      <span class="label">Cleanup</span>
+      <Setting title="Spoken punctuation" hint="“comma”, “period”, “question mark”, “new line”, “open paren”… become symbols.">
+        <Toggle checked={c.text.spoken_punctuation} onchange={(v) => setCfg("text.spoken_punctuation", v)} />
+      </Setting>
+      <Setting title="Remove filler words" hint="Drops um, uh and erm.">
+        <Toggle checked={c.text.remove_fillers} onchange={(v) => setCfg("text.remove_fillers", v)} />
+      </Setting>
+      <Setting title="Apply my dictionary" hint="Your corrections from the Dictionary.">
+        <Toggle checked={c.text.apply_rules} onchange={(v) => setCfg("text.apply_rules", v)} />
+      </Setting>
+    </div>
+    <div class="group">
+      <span class="label">Style</span>
+      <Setting title="Capitalization" hint="Lowercase keeps acronyms and dictionary words as they are.">
+        <Segmented
+          value={c.text.casing}
+          options={[
+            { value: "natural", label: "Normal" },
+            { value: "lowercase", label: "lower" },
+          ]}
+          onchange={(v) => setCfg("text.casing", v)}
+        />
+      </Setting>
+      <Setting title="No period at the end" hint="Chat style. Question and exclamation marks stay.">
+        <Toggle checked={c.text.drop_final_period} onchange={(v) => setCfg("text.drop_final_period", v)} />
+      </Setting>
+    </div>
   </div>
-  <div class="arrow"><Icon name="arrowRight" size={18} /></div>
-  <div class="col">
-    <div class="lbl"><Icon name="type" size={14} />What Fluss types</div>
-    {#key out}
-      <div class="out" in:fade={{ duration: 150 }}>{out}</div>
-    {/key}
+
+  <div class="col try">
+    <span class="label">Live test</span>
+    <div class="io">
+      <div class="lbl label">In — what you say</div>
+      <textarea bind:value={sample} spellcheck="false"></textarea>
+    </div>
+    <div class="io out-io">
+      <div class="lbl label"><b>Out</b> — what Fluss types</div>
+      {#key out}
+        <div class="out display" in:fade={{ duration: 90 }}>{out}</div>
+      {/key}
+    </div>
   </div>
-</div>
-
-<div class="section-title">Cleanup</div>
-<div class="card">
-  <Setting icon="quote" title="Spoken punctuation" hint="Say “comma”, “period”, “question mark”, “new line”, “new paragraph”, “open paren”… and get the symbol.">
-    <Toggle checked={c.text.spoken_punctuation} onchange={(v) => setCfg("text.spoken_punctuation", v)} />
-  </Setting>
-  <Setting icon="wave" title="Remove filler words" hint="Drops “um”, “uh” and “erm”.">
-    <Toggle checked={c.text.remove_fillers} onchange={(v) => setCfg("text.remove_fillers", v)} />
-  </Setting>
-  <Setting icon="book" title="Apply my dictionary" hint="Your corrections from the Dictionary page.">
-    <Toggle checked={c.text.apply_rules} onchange={(v) => setCfg("text.apply_rules", v)} />
-  </Setting>
-</div>
-
-<div class="section-title">Style</div>
-<div class="card">
-  <Setting icon="type" title="Capitalization" hint="“all lowercase” keeps acronyms like API and words from your dictionary as they are.">
-    <Segmented
-      value={c.text.casing}
-      options={[
-        { value: "natural", label: "Normal" },
-        { value: "lowercase", label: "all lowercase" },
-      ]}
-      onchange={(v) => setCfg("text.casing", v)}
-    />
-  </Setting>
-  <Setting title="No period at the end" hint="Chat style: drops the final period of each dictation. Question and exclamation marks stay.">
-    <Toggle checked={c.text.drop_final_period} onchange={(v) => setCfg("text.drop_final_period", v)} />
-  </Setting>
 </div>
 
 <style>
-  .try {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 14px;
-    padding: 16px;
-    align-items: stretch;
-    background:
-      radial-gradient(400px 200px at 100% 0%, rgba(139, 124, 246, 0.1), transparent 70%),
-      var(--surface);
+  .cols {
+    flex: 1;
   }
-  .col {
+  .try {
+    gap: 0;
+  }
+  .try > .label {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .io {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    min-width: 0;
+    flex: 1;
+    min-height: 0;
+    padding-top: 14px;
   }
   .lbl {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-3);
+    margin-bottom: 8px;
   }
   textarea {
     flex: 1;
     resize: none;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--border-2);
-    background: var(--surface);
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    background: var(--plate);
     outline: none;
-    line-height: 1.5;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-2);
+    transition: border-color var(--t1);
   }
   textarea:focus {
-    border-color: var(--accent);
+    border-color: var(--gold);
   }
-  .arrow {
-    display: grid;
-    place-items: center;
-    color: var(--accent-text);
+  .out-io {
+    padding-bottom: 2px;
   }
   .out {
     flex: 1;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: var(--flow-soft);
-    border: 1px solid var(--border);
+    padding: 12px 14px;
+    border: 1px solid var(--gold-dim);
+    border-left-width: 2px;
+    border-left-color: var(--gold);
     white-space: pre-wrap;
-    line-height: 1.5;
+    font-size: 22px;
+    line-height: 1.3;
+    font-weight: 300;
     user-select: text;
-    min-height: 70px;
+    overflow: auto;
   }
 </style>

@@ -6,7 +6,8 @@
 
 ![Fluss home](docs/home.png)
 
-<p align="center"><img src="docs/overlay-listening.png" width="640" alt="Dictation overlay"></p>
+<p align="center"><img src="docs/overlay-listening.png" width="680" alt="Dictation overlay"></p>
+<p align="center"><img src="docs/popup.png" width="460" alt="One-second correction popup"></p>
 
 - **Runs on your machine.** The speech models run locally (CPU or GPU). No account, no cloud, no audio leaves your PC, unless you choose a custom endpoint.
 - **Built for latency.** Text is typed in one batch. A phrase that ended before you let go is usually already transcribed, so the text appears almost instantly. Model loading runs at low priority and never stalls your apps.
@@ -85,10 +86,19 @@ A few design details:
 Requirements: Rust (stable), Node 22, Windows 10/11 with the MSVC build tools.
 
 ```powershell
-cargo test -p fluss-core -p fluss-daemon      # unit tests
+powershell -File scripts\check.ps1             # what CI runs, plus the UI build (-Quick: Rust tests only)
+powershell -File scripts\install-hooks.ps1     # run the quick check before every git push
 cd ui; npm ci; npm run dev                     # settings UI in a browser with a mock backend
 powershell -File scripts\build-installer.ps1   # release binaries + NSIS installer
 ```
+
+CI on GitHub only runs the cached Rust tests, and only when Rust code changes. The full cross-platform
+build (UI + Tauri on Windows, Linux and macOS) is manual: Actions → CI → *Run workflow*.
+
+The website (`site/`) is static HTML/CSS/JS with no build step. To deploy it on Vercel, import the repo with
+**Root Directory** `site`, framework *Other*, and no build command.
+
+Design language: [`docs/DESIGN.md`](docs/DESIGN.md) — black and gold, Licht Serif / Geist / Geist Mono.
 
 Developer helpers:
 
@@ -104,6 +114,7 @@ macOS and Linux: the core, engines, CLI and settings app build there. Global sho
 
 - [Phonon 2.5](https://huggingface.co/FermionResearch/Phonon-2.5-English) by Fermion Research (CC-BY-4.0).
 - [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) by NVIDIA (CC-BY-4.0), ONNX export by [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).
+- [Licht Serif](https://zon.sh/licht) by zon.sh (used with permission); [Geist and Geist Mono](https://vercel.com/font) by Vercel (OFL).
 - Built with [Tauri](https://tauri.app), [Svelte](https://svelte.dev), [ONNX Runtime](https://onnxruntime.ai), [cpal](https://github.com/RustAudio/cpal) and [tiny-skia](https://github.com/RazrFalcon/tiny-skia).
 
 MIT licensed.

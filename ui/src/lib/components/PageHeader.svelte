@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  let { title, subtitle = "", actions }: { title: string; subtitle?: string; actions?: Snippet } = $props();
+  let { index = "", title, subtitle = "", actions }: { index?: string; title: string; subtitle?: string; actions?: Snippet } = $props();
 </script>
 
 <header>
-  <div>
-    <h1>{title}</h1>
+  <div class="txt">
+    {#if index}<div class="label"><b>{index}</b> — {title}</div>{/if}
+    <h1 class="display">{title}</h1>
     {#if subtitle}<p>{subtitle}</p>{/if}
   </div>
   {#if actions}<div class="actions">{@render actions()}</div>{/if}
@@ -16,21 +17,24 @@
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 22px;
+    gap: 24px;
+    padding-bottom: 22px;
+    margin-bottom: 4px;
+    flex: none;
   }
   h1 {
-    font-size: 26px;
-    font-weight: 700;
-    letter-spacing: -0.03em;
+    font-size: 44px;
+    margin-top: 10px;
   }
   p {
-    margin: 6px 0 0;
+    margin-top: 10px;
     color: var(--text-2);
     max-width: 560px;
+    font-size: 13.5px;
   }
   .actions {
     display: flex;
     gap: 8px;
+    padding-bottom: 4px;
   }
 </style>
