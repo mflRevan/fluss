@@ -1,0 +1,34 @@
+[package]
+name = "fluss-settings"
+description = "Fluss settings, onboarding and rule popup"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fluss-settings"
+path = "src/main.rs"
+
+[features]
+# Embed the built frontend (ui/dist). `npm run tauri dev -- --no-default-features` uses the Vite dev server instead.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.2", features = [] }
+
+[dependencies]
+fluss-core = { path = "../../crates/fluss-core" }
+tauri = { version = "2.12.3", features = [] }
+tauri-plugin-single-instance = "2.5.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+parking_lot = "0.12.5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_Threading",
+] }

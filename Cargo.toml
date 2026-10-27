@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = ["crates/fluss-core", "crates/fluss-daemon", "crates/fluss-cli", "ui/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["mflRevan"]
+repository = "https://github.com/mflRevan/fluss"
+homepage = "https://github.com/mflRevan/fluss"
+
+[workspace.dependencies]
+fluss-core = { path = "crates/fluss-core" }
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "0.9.8"
+log = "0.4.34"
+clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
+crossbeam-channel = "0.5.17"
+parking_lot = "0.12.5"
+interprocess = "2.4.5"
+dirs = "7.0.0"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# Keep dev builds of the audio/DSP path usable.
+[profile.dev.package."*"]
+opt-level = 2

@@ -1,0 +1,6 @@
+/target
+/dist
+*.log
+.DS_Store
+ui/src-tauri/binaries/
+/prototype/
