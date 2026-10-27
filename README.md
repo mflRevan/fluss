@@ -39,7 +39,7 @@
 
 ## Install
 
-Download `Fluss_x.y.z_x64-setup.exe` from [Releases](https://github.com/mflRevan/fluss/releases) and run it. No admin rights are needed. Onboarding walks you through choosing a microphone and a model, then lets you try it out.
+Download `Fluss_x.y.z_x64-setup.exe` from [Releases](https://github.com/mflRevan/fluss/releases) or [the website](https://fluss-mauve.vercel.app) and run it. No admin rights are needed. Onboarding walks you through choosing a microphone and a model, then lets you try it out.
 
 ## Command line
 
@@ -95,8 +95,10 @@ powershell -File scripts\build-installer.ps1   # release binaries + NSIS install
 CI on GitHub only runs the cached Rust tests, and only when Rust code changes. The full cross-platform
 build (UI + Tauri on Windows, Linux and macOS) is manual: Actions → CI → *Run workflow*.
 
-The website (`site/`) is static HTML/CSS/JS with no build step. To deploy it on Vercel, import the repo with
-**Root Directory** `site`, framework *Other*, and no build command.
+The website (`site/`, live at https://fluss-mauve.vercel.app) is static HTML/CSS/JS with no build step.
+
+Releasing: push a version tag (`git tag v0.1.0; git push origin v0.1.0`). The *Release* workflow builds the installer,
+publishes a GitHub release and redeploys the website to Vercel (needs the `VERCEL_TOKEN` repo secret).
 
 Design language: [`docs/DESIGN.md`](docs/DESIGN.md) — black and gold, Licht Serif / Geist / Geist Mono.
 
