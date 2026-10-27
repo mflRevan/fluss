@@ -79,7 +79,7 @@
   </button>
 
   <div class="status">
-    <Iris size={44} ticks={32} {mode} />
+    <Iris size={44} {mode} />
     <div class="st">
       <div class="st1" class:bad>{stateLabel}</div>
       <div class="st2">{s?.model.name ?? "Fluss"}</div>

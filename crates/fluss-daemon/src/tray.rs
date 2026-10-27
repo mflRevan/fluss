@@ -54,44 +54,75 @@ fn look(st: &Status) -> Look {
     }
 }
 
-/// 32x32 RGBA: a small iris (radial ticks around a diamond) in gold.
-/// Idle: dim ring. Live: full bright ring. Busy: half ring lit. Problem: red core.
+/// 32x32 RGBA: a small aperture (six-blade iris) in gold.
+/// Off: closed and dim. Idle: nearly closed, gold diamond in the pinhole.
+/// Live: wide open, bright rim. Busy: half open. Problem: closed, red core.
 fn icon_rgba(l: Look) -> Vec<u8> {
+    use std::f32::consts::{PI, TAU};
     use tiny_skia::*;
     const GOLD: (u8, u8, u8) = (227, 176, 75);
     const DIM: (u8, u8, u8) = (140, 107, 42);
-    let mut pm = Pixmap::new(32, 32).unwrap();
-    let (cx, cy) = (16.0f32, 16.0f32);
-    let n = 16;
-    for i in 0..n {
-        let a = -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::TAU / n as f32;
-        let lit = match l {
-            Look::Live => true,
-            Look::Busy => i < n / 2,
-            Look::Idle => i % 4 == 0,
-            _ => false,
-        };
-        let (c, r2) = if lit { (GOLD, 15.0) } else { (DIM, 12.5) };
-        let (s, co) = a.sin_cos();
-        let mut pb = PathBuilder::new();
-        pb.move_to(cx + co * 8.5, cy + s * 8.5);
-        pb.line_to(cx + co * r2, cy + s * r2);
+    const RED: (u8, u8, u8) = (229, 72, 77);
+    let paint = |c: (u8, u8, u8), a: f32| {
         let mut p = Paint::default();
         p.anti_alias = true;
-        p.set_color_rgba8(c.0, c.1, c.2, if l == Look::Off { 150 } else { 255 });
-        pm.stroke_path(&pb.finish().unwrap(), &p, &Stroke { width: 2.0, ..Default::default() }, Transform::identity(), None);
-    }
-    let core = if l == Look::Problem { (229, 72, 77) } else if l == Look::Off { DIM } else { GOLD };
+        p.set_color_rgba8(c.0, c.1, c.2, (a * 255.0) as u8);
+        p
+    };
+    let path = |pts: &[(f32, f32)]| {
+        let mut pb = PathBuilder::new();
+        pb.move_to(pts[0].0, pts[0].1);
+        pts[1..].iter().for_each(|p| pb.line_to(p.0, p.1));
+        pb.close();
+        pb.finish().unwrap()
+    };
+    let mut pm = Pixmap::new(32, 32).unwrap();
+    let (cx, cy, r) = (16.0f32, 16.0f32, 14.5f32);
+    let open = match l {
+        Look::Live => 0.62,
+        Look::Busy => 0.4,
+        Look::Idle => 0.24,
+        _ => 0.16,
+    };
+    let (rim, a) = match l {
+        Look::Live => (GOLD, 1.0),
+        Look::Off => (DIM, 0.6),
+        _ => (DIM, 1.0),
+    };
+    let half = PI / 6.0;
+    let twist = 0.3 + open * 1.3;
+    let vr = r * open / half.cos();
+    let hex: Vec<(f32, f32)> = (0..6).map(|i| twist + i as f32 * TAU / 6.0 + half).map(|t| (cx + t.cos() * vr, cy + t.sin() * vr)).collect();
+    // Blade disc with the opening cut out (even-odd), so the taskbar shows through.
     let mut pb = PathBuilder::new();
-    pb.move_to(cx, cy - 5.5);
-    pb.line_to(cx + 5.5, cy);
-    pb.line_to(cx, cy + 5.5);
-    pb.line_to(cx - 5.5, cy);
+    pb.push_circle(cx, cy, r);
+    pb.move_to(hex[0].0, hex[0].1);
+    hex[1..].iter().for_each(|p| pb.line_to(p.0, p.1));
     pb.close();
-    let mut p = Paint::default();
-    p.anti_alias = true;
-    p.set_color_rgba8(core.0, core.1, core.2, 255);
-    pm.fill_path(&pb.finish().unwrap(), &p, FillRule::Winding, Transform::identity(), None);
+    pm.fill_path(&pb.finish().unwrap(), &paint(GOLD, 0.22 * a), FillRule::EvenOdd, Transform::identity(), None);
+    let thin = Stroke { width: 1.4, ..Default::default() };
+    for i in 0..6 {
+        let th = twist + i as f32 * TAU / 6.0;
+        let (vx, vy) = ((cx + (th - half).cos() * vr), (cy + (th - half).sin() * vr));
+        let (dx, dy) = (-th.sin(), th.cos());
+        let (ox, oy) = (vx - cx, vy - cy);
+        let b = ox * dx + oy * dy;
+        let u = -b + (b * b - (ox * ox + oy * oy - r * r)).max(0.0).sqrt();
+        let mut pb = PathBuilder::new();
+        pb.move_to(vx, vy);
+        pb.line_to(vx + dx * u, vy + dy * u);
+        pm.stroke_path(&pb.finish().unwrap(), &paint(DIM, a), &thin, Transform::identity(), None);
+    }
+    let edge = if l == Look::Problem { RED } else if l == Look::Off { DIM } else { GOLD };
+    pm.stroke_path(&path(&hex), &paint(edge, a), &thin, Transform::identity(), None);
+    let mut pb = PathBuilder::new();
+    pb.push_circle(cx, cy, r);
+    pm.stroke_path(&pb.finish().unwrap(), &paint(rim, a), &Stroke { width: 2.0, ..Default::default() }, Transform::identity(), None);
+    if open < 0.3 {
+        let core = if l == Look::Problem { RED } else if l == Look::Off { DIM } else { GOLD };
+        let d = 3.4;
+        pm.fill_path(&path(&[(cx, cy - d), (cx + d, cy), (cx, cy + d), (cx - d, cy)]), &paint(core, 1.0), FillRule::Winding, Transform::identity(), None);
+    }
     // Un-premultiply for the icon API.
     let mut out = pm.data().to_vec();
     for px in out.chunks_exact_mut(4) {

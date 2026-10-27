@@ -38,7 +38,7 @@
       </Setting>
     </div>
     <div class="monitor">
-      <Iris size={176} mode="idle" reactive ticks={64} />
+      <Iris size={176} mode="idle" reactive />
       <div class="readout">
         <div class="label">Level</div>
         <div class="db mono">{db.toFixed(0)}<small>dB</small></div>

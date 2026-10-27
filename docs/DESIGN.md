@@ -57,16 +57,20 @@ Fast and snappy with a small touch of smoothness. Never floaty.
 - Page switch: content fades in with a 4px rise, 140ms. Hover: colour/outline change only.
 - Respect reduced motion (instant).
 
-## The voice visual ("iris")
+## The voice visual ("aperture")
 
-The signature element, used by the overlay, the home screen and onboarding — never generic bars.
-A ring of thin radial ticks around a small gold diamond (◆), like an aperture/HUD reticle:
-- idle: ticks short, `--gold-dim`, slow 1 rev/40s rotation
-- listening: each tick's length follows the recent voice level (newest at 12 o'clock, history sweeping
-  clockwise), ticks brighten to `--gold` with level; the diamond pulses subtly
-- hands-free: diamond drawn as an outline, ring rotates slowly
-- thinking/loading: a lit arc of ticks sweeps around the ring; loading shows mono percentage
-- notice ok/err: ring collapses to a single bright tick at 12 o'clock / `--danger`
+The signature element, used by the overlay, tray icon, app icon, home screen, onboarding and website —
+never generic bars. A six-blade camera iris: a faint gold blade disc, blade edges in `--gold-dim`, a
+`--gold` hexagonal opening, a rim with 24 lens markings, and the gold diamond (◆) visible through the
+pinhole when it is nearly closed. The opening twists as it opens (rotation += 1.3 rad × openness).
+- idle: nearly closed (13% of the radius), opening outlined in `--gold-dim`, slow drift (0.2 rad/s)
+- listening: opening = 13% + 72% × voice level, smoothed (attack fast, release ~140ms); outline `--gold`
+- hands-free: the rim turns `--gold`, dashed and turning
+- transcribing / loading: blades spin (4.2 rad/s) around a small pulsing opening; loading also opens
+  with progress and draws a `--gold` progress arc on the rim
+- notice ok/err: opening held at 34% / closed with a `--danger` diamond and outline
+- tray: static apertures per state (closed dim = off, pinhole + diamond = ready, half = busy,
+  open with gold rim = recording, red core = problem)
 
 ## Voice & copy
 

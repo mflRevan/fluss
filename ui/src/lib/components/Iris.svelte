@@ -3,9 +3,11 @@
 </script>
 
 <script lang="ts">
-  // The voice visual: a ring of radial ticks around a gold diamond.
-  // Listening: tick lengths are the recent voice level, newest at 12 o'clock,
-  // history sweeping clockwise. See docs/DESIGN.md ("iris").
+  // The voice visual: the aperture, a six-blade camera iris. It opens with the
+  // voice and twists as it opens, closes to a pinhole (showing the gold diamond)
+  // in silence and spins while transcribing or loading. Hands-free dashes the rim.
+  // Same geometry as the overlay (crates/fluss-daemon/src/overlay/render.rs) and
+  // the website. See docs/DESIGN.md ("aperture").
   import { onMount } from "svelte";
   import { app } from "../state.svelte";
 
@@ -13,37 +15,33 @@
     size = 200,
     mode = "idle",
     progress = null,
-    ticks = 72,
     reactive = false,
   }: {
     size?: number;
     mode?: IrisMode;
-    /** 0..1 draws a progress arc on the outer ring. */
+    /** 0..1 draws a progress arc on the rim and opens the blades with it. */
     progress?: number | null;
-    ticks?: number;
     /** React to the mic level even when idle (mic test). */
     reactive?: boolean;
   } = $props();
 
   let canvas: HTMLCanvasElement;
 
-  const GOLD = [227, 176, 75];
-  const DIM = [140, 107, 42];
-  const RULE = "#2a2418";
+  const TAU = Math.PI * 2;
+  const GOLD = "rgb(227,176,75)";
+  const DIM = "rgb(140,107,42)";
+  const gold = (a: number) => `rgba(227,176,75,${a})`;
 
   onMount(() => {
     const ctx = canvas.getContext("2d")!;
-    const hist = new Float32Array(512);
-    const len = new Float32Array(512);
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     let raf = 0;
     let last = performance.now();
     let visible = true;
     let peak = 0.05;
-    let smooth = 0;
-    let prevSmooth = 0;
-    let acc = 0;
+    let level = 0;
+    let open = 0.13;
     let rot = 0;
-    let diamond = 0;
 
     const io = new IntersectionObserver(([e]) => (visible = e.isIntersecting));
     io.observe(canvas);
@@ -58,7 +56,6 @@
       const dt = Math.min(0.05, elapsed);
       last = now;
       const t = now / 1000;
-      const n = ticks;
       const dpr = window.devicePixelRatio || 1;
       const px = Math.round(size * dpr);
       if (canvas.width !== px) {
@@ -69,109 +66,114 @@
       ctx.clearRect(0, 0, size, size);
 
       const live = mode === "listening" || mode === "hands-free" || reactive;
+      const busy = mode === "loading" || mode === "thinking";
       const raw = app.level?.rms ?? 0;
       peak = Math.max(peak * Math.pow(0.8, elapsed), raw, 0.04);
       const norm = Math.min(1, Math.pow(raw / peak, 0.8));
-      smooth += ((live ? norm : 0) - smooth) * Math.min(1, dt * 20);
+      level += ((live ? norm : 0) - level) * Math.min(1, dt * (norm > level ? 28 : 7));
 
-      // One history slot per ~28 ms: a full revolution is ~2 s of voice.
-      // Advance by real time, so throttled frames still keep the history honest.
-      acc += elapsed;
-      const step = 2 / n;
-      // Several slots per frame when frames are sparse: interpolate so the ring stays textured.
-      const slots = Math.floor(acc / step);
-      for (let k = 0; k < slots; k++) {
-        hist.copyWithin(1, 0, n - 1);
-        hist[0] = prevSmooth + (smooth - prevSmooth) * ((k + 1) / slots) * (0.85 + 0.3 * Math.random());
+      const target =
+        progress != null && mode === "loading"
+          ? 0.12 + 0.55 * Math.min(1, Math.max(0, progress))
+          : busy
+            ? 0.2 + 0.05 * Math.sin(t * 10)
+            : live
+              ? 0.13 + 0.72 * level
+              : 0.13;
+      open = reduce ? target : open + (target - open) * Math.min(1, dt * 18);
+      if (!reduce) rot += dt * (busy ? 4.2 : mode === "hands-free" ? 0.7 : 0.2);
+
+      const c = size / 2;
+      const R = size * 0.42;
+      const B = 6;
+      const half = Math.PI / B;
+      const twist = rot + open * 1.3;
+      const vr = (R * open) / Math.cos(half);
+      const lw = Math.max(1, size * 0.008);
+      const hex: [number, number][] = [];
+      for (let i = 0; i < B; i++) {
+        const a = twist + (i * TAU) / B + half;
+        hex.push([c + Math.cos(a) * vr, c + Math.sin(a) * vr]);
       }
-      acc -= slots * step;
-      prevSmooth = smooth;
-
-      if (mode === "idle" && !reactive) rot += (dt * Math.PI * 2) / 40;
-      else if (mode === "hands-free") rot += (dt * Math.PI * 2) / 24;
-
-      const R = size / 2;
-      const r0 = R * 0.4;
-      const maxL = R * 0.42;
-      const sweep = (t * Math.PI * 2) / 1.4;
-
-      for (let i = 0; i < n; i++) {
-        const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
-        let target: number;
-        if (mode === "loading" || mode === "thinking") {
-          let d = Math.abs(((a + Math.PI / 2 - (mode === "thinking" ? sweep * 1.6 : sweep)) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
-          const lit = Math.max(0, 1 - d / 0.6);
-          target = 0.07 + lit * (mode === "thinking" ? 0.42 : 0.3);
-        } else if (live) {
-          target = 0.09 + 0.91 * Math.pow(hist[i], 1.35);
-        } else {
-          target = i % 18 === 0 ? 0.42 : i % 6 === 0 ? 0.24 : 0.11;
-        }
-        len[i] += (target - len[i]) * Math.min(1, dt * 24);
-      }
-
-      ctx.lineWidth = 1;
-      ctx.lineCap = "butt";
-      for (let i = 0; i < n; i++) {
-        const l = len[i];
-        const a = -Math.PI / 2 + (i / n) * Math.PI * 2 + (mode === "listening" || reactive ? 0 : rot);
-        const k = Math.min(1, l * 1.6);
-        const c = DIM.map((v, j) => Math.round(v + (GOLD[j] - v) * k));
-        ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${0.55 + 0.45 * k})`;
-        const cos = Math.cos(a);
-        const sin = Math.sin(a);
-        const a0 = r0;
-        const a1 = r0 + Math.max(1.5, l * maxL);
+      const hexPath = () => {
         ctx.beginPath();
-        ctx.moveTo(R + cos * a0, R + sin * a0);
-        ctx.lineTo(R + cos * a1, R + sin * a1);
+        hex.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.closePath();
+      };
+
+      // Blade disc, with the opening cut out so the page shows through.
+      ctx.fillStyle = gold(0.09);
+      ctx.beginPath();
+      ctx.arc(c, c, R, 0, TAU);
+      ctx.fill();
+      ctx.globalCompositeOperation = "destination-out";
+      hexPath();
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+
+      // Blade edges: rays leaving each hexagon vertex tangentially, ending on the rim.
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = DIM;
+      for (let i = 0; i < B; i++) {
+        const th = twist + (i * TAU) / B;
+        const [vx, vy] = hex[(i + B - 1) % B];
+        const dx = -Math.sin(th);
+        const dy = Math.cos(th);
+        const ox = vx - c;
+        const oy = vy - c;
+        const b = ox * dx + oy * dy;
+        const u = -b + Math.sqrt(Math.max(0, b * b - (ox * ox + oy * oy - R * R)));
+        ctx.beginPath();
+        ctx.moveTo(vx, vy);
+        ctx.lineTo(vx + dx * u, vy + dy * u);
         ctx.stroke();
       }
-
-      // Inner hairline and outer HUD ring: four quadrant arcs, cardinal marks.
-      ctx.strokeStyle = RULE;
-      ctx.beginPath();
-      ctx.arc(R, R, r0 - 5, 0, Math.PI * 2);
+      ctx.strokeStyle = live || busy ? GOLD : DIM;
+      hexPath();
       ctx.stroke();
-      const ro = R - 1.5;
-      for (let q = 0; q < 4; q++) {
-        const mid = q * (Math.PI / 2) + Math.PI / 4;
-        ctx.beginPath();
-        ctx.arc(R, R, ro, mid - 0.55, mid + 0.55);
-        ctx.stroke();
+
+      // Rim: dashed, turning and gold in hands-free.
+      ctx.strokeStyle = mode === "hands-free" ? GOLD : DIM;
+      if (mode === "hands-free") {
+        ctx.setLineDash([R * 0.08, R * 0.06]);
+        ctx.lineDashOffset = reduce ? 0 : -t * R * 0.3;
       }
-      ctx.strokeStyle = `rgb(${DIM.join(",")})`;
-      for (let q = 0; q < 4; q++) {
-        const a = q * (Math.PI / 2);
+      ctx.beginPath();
+      ctx.arc(c, c, R, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Lens markings.
+      ctx.strokeStyle = gold(0.35);
+      ctx.lineWidth = Math.max(1, size * 0.005);
+      for (let i = 0; i < 24; i++) {
+        const a = (i * TAU) / 24;
+        const l = i % 2 ? 0.05 : 0.1;
         ctx.beginPath();
-        ctx.moveTo(R + Math.cos(a) * (ro - 5), R + Math.sin(a) * (ro - 5));
-        ctx.lineTo(R + Math.cos(a) * (ro + 0.5), R + Math.sin(a) * (ro + 0.5));
+        ctx.moveTo(c + Math.cos(a) * R * 1.04, c + Math.sin(a) * R * 1.04);
+        ctx.lineTo(c + Math.cos(a) * R * (1.04 + l), c + Math.sin(a) * R * (1.04 + l));
         ctx.stroke();
-      }
-      if (progress != null) {
-        ctx.strokeStyle = `rgb(${GOLD.join(",")})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(R, R, ro, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.002, Math.min(1, progress)));
-        ctx.stroke();
-        ctx.lineWidth = 1;
       }
 
-      // The diamond.
-      const target = R * 0.075 * (1 + 0.45 * smooth);
-      diamond += (target - diamond) * Math.min(1, dt * 26);
-      const d = diamond;
-      ctx.beginPath();
-      ctx.moveTo(R, R - d);
-      ctx.lineTo(R + d, R);
-      ctx.lineTo(R, R + d);
-      ctx.lineTo(R - d, R);
-      ctx.closePath();
-      if (mode === "hands-free") {
-        ctx.strokeStyle = `rgb(${GOLD.join(",")})`;
+      if (progress != null) {
+        ctx.strokeStyle = GOLD;
+        ctx.lineWidth = Math.max(1.5, size * 0.016);
+        ctx.beginPath();
+        ctx.arc(c, c, R, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0.002, Math.min(1, progress)));
         ctx.stroke();
-      } else {
-        ctx.fillStyle = mode === "idle" && !reactive ? `rgb(${DIM.join(",")})` : `rgb(${GOLD.join(",")})`;
+      }
+
+      // The diamond shows through the pinhole when nearly closed.
+      const show = Math.max(0, 1 - open / 0.3);
+      if (show > 0) {
+        const d = Math.max(1.2, R * open * 0.45);
+        ctx.fillStyle = gold(0.95 * show);
+        ctx.beginPath();
+        ctx.moveTo(c, c - d);
+        ctx.lineTo(c + d, c);
+        ctx.lineTo(c, c + d);
+        ctx.lineTo(c - d, c);
+        ctx.closePath();
         ctx.fill();
       }
     }

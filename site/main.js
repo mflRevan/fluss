@@ -2,7 +2,6 @@
   "use strict";
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const GOLD = [227, 176, 75], DIM = [140, 107, 42], RULE = "#2a2418", RULE2 = "#4a3f27";
-  const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
 
   // ------------------------------------------------------------ voice source
   // A speech-like envelope: phrases of syllables (~4.5 Hz) separated by pauses.
@@ -34,11 +33,14 @@
     return Math.min(1, Math.sqrt(rms * 6));
   }
 
-  // ------------------------------------------------------------ iris
+  // ------------------------------------------------------------ aperture
+  // The voice visual: a six-blade camera iris. It opens with the voice and twists as
+  // it opens, closes to a pinhole (showing the gold diamond) in silence and spins while
+  // transcribing. Same geometry as the app and the overlay (docs/DESIGN.md).
   function makeIris(canvas, opts) {
-    const o = Object.assign({ ticks: 72, bezel: true, inner: 0.2, maxLen: 0.2 }, opts);
+    const o = Object.assign({ bezel: true }, opts);
+    const TAU = Math.PI * 2, B = 6, HALF = Math.PI / B;
     const ctx = canvas.getContext("2d");
-    const hist = new Float32Array(o.ticks);
     let size = 0, dpr = 1;
     function resize() {
       dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -49,88 +51,123 @@
     }
     resize();
     new ResizeObserver(resize).observe(canvas);
-    let smooth = 0;
+    let smooth = 0, open = 0.13, rot = 0, lastT = 0;
+    const gold = (a) => `rgba(${GOLD.join(",")},${a})`;
     return {
       push(level) {
-        smooth += (level - smooth) * 0.5;
-        hist.copyWithin(1, 0);
-        hist[0] = smooth;
+        smooth += (level - smooth) * (level > smooth ? 0.55 : 0.18);
       },
       level: () => smooth,
       draw(time, mode) {
+        const dt = Math.min(0.05, Math.max(0, time - lastT));
+        lastT = time;
+        const think = mode === "think";
+        const target = think ? 0.2 + 0.05 * Math.sin(time * 10) : 0.13 + 0.72 * Math.min(1, smooth * 1.15);
+        open = reduce ? target : open + (target - open) * Math.min(1, dt * 18);
+        if (!reduce) rot += dt * (think ? 4.2 : 0.2);
+
         const s = size, c = s / 2;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, s, s);
         ctx.lineCap = "butt";
         if (o.bezel) {
-          // Watch-style bezel: 120 graduations, slowly turning.
-          const rot = reduce ? 0 : (time / 40) * Math.PI * 2;
-          const R = s * 0.47;
+          // Watch-style bezel: 120 graduations, slowly turning, index at 12 o'clock.
+          const brot = reduce ? 0 : (time / 40) * TAU;
+          const BR = s * 0.47;
           ctx.strokeStyle = RULE;
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(c, c, R, 0, Math.PI * 2);
+          ctx.arc(c, c, BR, 0, TAU);
           ctx.stroke();
           for (let i = 0; i < 120; i++) {
-            const a = rot + (i / 120) * Math.PI * 2;
-            const major = i % 10 === 0;
-            const l = major ? s * 0.03 : s * 0.012;
-            ctx.strokeStyle = major ? RULE2 : RULE;
+            const a = brot + (i / 120) * TAU;
+            const l = i % 10 === 0 ? s * 0.03 : s * 0.012;
+            ctx.strokeStyle = i % 10 === 0 ? RULE2 : RULE;
             ctx.beginPath();
-            ctx.moveTo(c + Math.cos(a) * (R - l), c + Math.sin(a) * (R - l));
-            ctx.lineTo(c + Math.cos(a) * R, c + Math.sin(a) * R);
+            ctx.moveTo(c + Math.cos(a) * (BR - l), c + Math.sin(a) * (BR - l));
+            ctx.lineTo(c + Math.cos(a) * BR, c + Math.sin(a) * BR);
             ctx.stroke();
           }
-          // Fixed index marker at 12 o'clock.
-          ctx.fillStyle = mix(DIM, GOLD, 1);
+          ctx.fillStyle = gold(1);
           ctx.beginPath();
           ctx.moveTo(c, s * 0.035);
           ctx.lineTo(c - s * 0.012, s * 0.012);
           ctx.lineTo(c + s * 0.012, s * 0.012);
           ctx.fill();
-          ctx.strokeStyle = RULE;
-          ctx.beginPath();
-          ctx.arc(c, c, s * (o.inner - 0.035), 0, Math.PI * 2);
-          ctx.stroke();
         }
-        // Voice ticks: newest at 12 o'clock, history sweeping clockwise.
-        const r0 = s * o.inner;
-        const w = Math.max(1, s * (o.bezel ? 0.0045 : 0.05));
-        ctx.lineWidth = w;
-        for (let i = 0; i < o.ticks; i++) {
-          const a = -Math.PI / 2 + (i / o.ticks) * Math.PI * 2;
-          let v = hist[i];
-          if (mode === "think") {
-            const head = ((time * 1.4) % 1) * o.ticks;
-            const d = (i - head + o.ticks) % o.ticks;
-            v = d < o.ticks * 0.18 ? 0.55 * (1 - d / (o.ticks * 0.18)) : 0.04;
-          }
-          const fade = 1 - (i / o.ticks) * 0.55;
-          const len = s * ((o.bezel ? 0.025 : 0.06) + o.maxLen * Math.min(1, v));
-          const t = Math.min(1, v * 1.8) * fade;
-          ctx.strokeStyle = mix([46, 39, 24], GOLD, Math.max(0.12, t));
-          ctx.beginPath();
-          ctx.moveTo(c + Math.cos(a) * r0, c + Math.sin(a) * r0);
-          ctx.lineTo(c + Math.cos(a) * (r0 + len), c + Math.sin(a) * (r0 + len));
-          ctx.stroke();
+        const R = s * (o.bezel ? 0.34 : 0.42);
+        const lw = Math.max(1, s * (o.bezel ? 0.003 : 0.03));
+        const twist = rot + open * 1.3, vr = (R * open) / Math.cos(HALF);
+        const hex = [];
+        for (let i = 0; i < B; i++) {
+          const a = twist + (i * TAU) / B + HALF;
+          hex.push([c + Math.cos(a) * vr, c + Math.sin(a) * vr]);
         }
-        // Centre diamond.
-        const d = s * (o.bezel ? 0.03 : 0.1) * (1 + smooth * 0.35);
-        ctx.fillStyle = mix(GOLD, GOLD, 1);
+        const hexPath = () => {
+          ctx.beginPath();
+          hex.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+          ctx.closePath();
+        };
+        // Blade disc with the opening cut out.
+        ctx.fillStyle = gold(0.09);
         ctx.beginPath();
-        ctx.moveTo(c, c - d);
-        ctx.lineTo(c + d, c);
-        ctx.lineTo(c, c + d);
-        ctx.lineTo(c - d, c);
-        ctx.closePath();
+        ctx.arc(c, c, R, 0, TAU);
         ctx.fill();
+        ctx.globalCompositeOperation = "destination-out";
+        hexPath();
+        ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+        // Blade edges: rays leaving each hexagon vertex tangentially, ending on the rim.
+        ctx.lineWidth = lw;
+        ctx.strokeStyle = `rgb(${DIM.join(",")})`;
+        for (let i = 0; i < B; i++) {
+          const th = twist + (i * TAU) / B;
+          const [vx, vy] = hex[(i + B - 1) % B];
+          const dx = -Math.sin(th), dy = Math.cos(th), ox = vx - c, oy = vy - c;
+          const b = ox * dx + oy * dy;
+          const u = -b + Math.sqrt(Math.max(0, b * b - (ox * ox + oy * oy - R * R)));
+          ctx.beginPath();
+          ctx.moveTo(vx, vy);
+          ctx.lineTo(vx + dx * u, vy + dy * u);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = gold(1);
+        hexPath();
+        ctx.stroke();
+        ctx.strokeStyle = `rgb(${DIM.join(",")})`;
+        ctx.beginPath();
+        ctx.arc(c, c, R, 0, TAU);
+        ctx.stroke();
+        // Lens markings.
+        ctx.strokeStyle = gold(0.35);
+        ctx.lineWidth = Math.max(1, s * 0.003);
+        for (let i = 0; i < 24; i++) {
+          const a = (i * TAU) / 24, l = i % 2 ? 0.05 : 0.1;
+          ctx.beginPath();
+          ctx.moveTo(c + Math.cos(a) * R * 1.04, c + Math.sin(a) * R * 1.04);
+          ctx.lineTo(c + Math.cos(a) * R * (1.04 + l), c + Math.sin(a) * R * (1.04 + l));
+          ctx.stroke();
+        }
+        // The diamond shows through the pinhole when nearly closed.
+        const show = Math.max(0, 1 - open / 0.3);
+        if (show > 0) {
+          const d = Math.max(1.2, R * open * 0.45);
+          ctx.fillStyle = gold(0.95 * show);
+          ctx.beginPath();
+          ctx.moveTo(c, c - d);
+          ctx.lineTo(c + d, c);
+          ctx.lineTo(c, c + d);
+          ctx.lineTo(c - d, c);
+          ctx.closePath();
+          ctx.fill();
+        }
       },
     };
   }
 
   // ------------------------------------------------------------ hero
   const heroCanvas = document.getElementById("iris");
-  const hero = makeIris(heroCanvas, { ticks: 72, bezel: true, inner: 0.19, maxLen: 0.2 });
+  const hero = makeIris(heroCanvas, { bezel: true });
   const roLevel = document.getElementById("ro-level");
   const roSrc = document.getElementById("ro-src");
   let heroVisible = true;
@@ -170,7 +207,7 @@
   const pillStatus = document.getElementById("pill-status");
   const typed = document.getElementById("typed");
   const steps = [...document.querySelectorAll("#steps li")];
-  const pillIris = makeIris(document.getElementById("pill-iris"), { ticks: 16, bezel: false, inner: 0.22, maxLen: 0.26 });
+  const pillIris = makeIris(document.getElementById("pill-iris"), { bezel: false });
   const SENTENCE = "Can we move the review to Thursday afternoon? The build looks good.";
   const WORDS = SENTENCE.split(" ");
   const flow = { t: 0, phase: -1, visible: false };

@@ -54,7 +54,7 @@
   <TitleBar />
   {#if !app.config}
     <div class="boot" in:fade={{ duration: 140 }}>
-      <Iris size={120} ticks={60} mode="loading" />
+      <Iris size={120} mode="loading" />
       <div class="label">{app.connected ? "Loading" : "Starting Fluss"}</div>
     </div>
   {:else if onboarding}

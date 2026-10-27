@@ -98,7 +98,7 @@
           <h2 class="display">Your microphone.</h2>
           <p class="lead">Pick the one you talk into, then say a few words.</p>
           <div class="microw">
-            <Iris size={190} mode="idle" reactive ticks={64} />
+            <Iris size={190} mode="idle" reactive />
             <div class="micctl">
               <Select
                 value={c.audio.device}

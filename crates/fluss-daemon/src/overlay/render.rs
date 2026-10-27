@@ -3,8 +3,8 @@
 //! (`fluss-daemon --render-overlay <dir>`).
 //!
 //! Look (docs/DESIGN.md): a black chamfered plate with a gold hairline, the
-//! "iris" voice visual (radial ticks around a gold diamond), a mono status
-//! label and the live text in Geist. Solid colours only.
+//! aperture voice visual (a six-blade camera iris), a mono status label and
+//! the live text in Geist. Solid colours only.
 
 use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
@@ -26,8 +26,10 @@ pub const CANVAS_W: f32 = 680.0;
 pub const CANVAS_H: f32 = 96.0;
 const PLATE_H: f32 = 44.0;
 const CHAMFER: f32 = 9.0;
-const IRIS_R: f32 = 14.0;
-const TICKS: usize = 40;
+/// Half the footprint of the voice visual, lens markings included.
+const IRIS_R: f32 = 16.0;
+/// Radius of the aperture disc itself.
+const APERTURE_R: f32 = 13.6;
 const MAX_TEXT_W: f32 = 440.0;
 const TEXT_PX: f32 = 14.5;
 const LABEL_PX: f32 = 10.5;
@@ -46,14 +48,16 @@ pub struct Scene<'a> {
     pub text: &'a str,
     /// Seconds since start (drives all motion).
     pub t: f32,
-    /// Recent mic levels (newest last), 0..1 after normalization.
-    pub levels: &'a [f32],
     /// 0..1 entrance.
     pub appear: f32,
     /// Animated plate width (logical px).
     pub width: f32,
     pub scale: f32,
     pub reduce_motion: bool,
+    /// Aperture opening, 0..1 of its radius (smoothed by the window).
+    pub open: f32,
+    /// Accumulated blade rotation (radians).
+    pub spin: f32,
 }
 
 struct Face {
@@ -204,64 +208,124 @@ pub fn content_width(fonts: &mut Fonts, kind: Kind, text: &str, _hint: &str) -> 
     layout(fonts, kind, text, 1.0).2
 }
 
-/// The iris: radial ticks around a diamond.
-fn iris(pm: &mut Pixmap, cx: f32, cy: f32, s: f32, sc: &Scene, alpha: f32) {
-    let t = if sc.reduce_motion { 0.0 } else { sc.t };
-    let r0 = 6.2 * s;
-    let max_len = (IRIS_R - 7.0) * s;
-    let n_lv = sc.levels.len().max(1);
-    let (spin, sweep_speed) = match sc.kind {
-        Kind::HandsFree => (t * 0.55, 0.0),
-        Kind::Finishing => (0.0, 7.5),
-        Kind::Loading(_) => (0.0, 4.2),
-        _ => (t * TAU / 40.0, 0.0),
-    };
-    for i in 0..TICKS {
-        let a = -PI / 2.0 + i as f32 * TAU / TICKS as f32 + spin;
-        let (len, bright, color) = match sc.kind {
-            Kind::Listening | Kind::HandsFree => {
-                // Newest level at 12 o'clock, history sweeping clockwise.
-                let h = n_lv - 1 - (i * n_lv / TICKS).min(n_lv - 1);
-                let lv = sc.levels.get(h).copied().unwrap_or(0.0).clamp(0.0, 1.0);
-                (0.18 + 0.82 * lv, 0.32 + 0.68 * lv, if lv > 0.12 { GOLD } else { GOLD_DIM })
-            }
-            Kind::Finishing | Kind::Loading(_) => {
-                let head = (t * sweep_speed).rem_euclid(TAU);
-                let pos = (i as f32 * TAU / TICKS as f32).rem_euclid(TAU);
-                let d = (head - pos).rem_euclid(TAU);
-                let lit = (1.0 - d / 2.2).max(0.0);
-                let done = match sc.kind {
-                    Kind::Loading(Some(p)) => pos <= p * TAU,
-                    _ => false,
-                };
-                let b = if done { 0.85f32 } else { 0.22 + 0.78 * lit };
-                (0.25 + 0.35 * lit, b, if lit > 0.3 || done { GOLD } else { GOLD_DIM })
-            }
-            Kind::NoticeOk | Kind::NoticeErr => {
-                let top = i == 0;
-                let c = if sc.kind == Kind::NoticeErr { DANGER } else { GOLD };
-                (if top { 1.0 } else { 0.12 }, if top { 1.0 } else { 0.25 }, if top { c } else { GOLD_DIM })
-            }
-        };
-        let (sn, cs) = a.sin_cos();
-        let r1 = r0 + 0.8 * s;
-        let r2 = r1 + (1.2 * s).max(len * max_len);
-        line(pm, (cx + cs * r1, cy + sn * r1), (cx + cs * r2, cy + sn * r2), 1.0 * s, color, bright * alpha);
+/// How far the aperture should be open (0..1 of its radius) for this frame.
+/// The window smooths towards it; the gallery uses it directly.
+pub fn aperture_target(kind: Kind, levels: &[f32], t: f32) -> f32 {
+    match kind {
+        Kind::Listening | Kind::HandsFree => {
+            // Weighted last few levels: snappy, without single-sample jitter.
+            let n = levels.len();
+            let at = |k: usize| if n > k { levels[n - 1 - k] } else { 0.0 };
+            let lv = (0.5 * at(0) + 0.3 * at(1) + 0.2 * at(2)).clamp(0.0, 1.0);
+            0.13 + 0.72 * lv
+        }
+        Kind::Finishing => 0.2 + 0.05 * (t * 10.0).sin(),
+        Kind::Loading(p) => 0.12 + 0.55 * p.unwrap_or(0.0).clamp(0.0, 1.0),
+        Kind::NoticeOk => 0.34,
+        Kind::NoticeErr => 0.1,
     }
-    // Diamond core.
-    let d = 3.2 * s * (1.0 + if matches!(sc.kind, Kind::Listening) { 0.12 * sc.levels.last().copied().unwrap_or(0.0) } else { 0.0 });
+}
+
+/// Rotation speed of the blades (rad/s) per state: spins while transcribing.
+pub fn aperture_spin_speed(kind: Kind) -> f32 {
+    match kind {
+        Kind::Finishing | Kind::Loading(_) => 4.2,
+        Kind::HandsFree => 0.7,
+        _ => 0.2,
+    }
+}
+
+fn polygon(pts: &[(f32, f32)], close: bool) -> Option<Path> {
     let mut pb = PathBuilder::new();
-    pb.move_to(cx, cy - d);
-    pb.line_to(cx + d, cy);
-    pb.line_to(cx, cy + d);
-    pb.line_to(cx - d, cy);
-    pb.close();
-    if let Some(p) = pb.finish() {
-        let core = if sc.kind == Kind::NoticeErr { DANGER } else { GOLD };
-        if sc.kind == Kind::HandsFree {
-            pm.stroke_path(&p, &paint(core, alpha), &Stroke { width: 1.2 * s, ..Default::default() }, Transform::identity(), None);
+    for (i, p) in pts.iter().enumerate() {
+        if i == 0 {
+            pb.move_to(p.0, p.1)
         } else {
-            pm.fill_path(&p, &paint(core, alpha), FillRule::Winding, Transform::identity(), None);
+            pb.line_to(p.0, p.1)
+        }
+    }
+    if close {
+        pb.close();
+    }
+    pb.finish()
+}
+
+fn polyline(pm: &mut Pixmap, pts: &[(f32, f32)], close: bool, width: f32, c: Rgb, alpha: f32, dash: Option<StrokeDash>) {
+    if let Some(p) = polygon(pts, close) {
+        let st = Stroke { width, line_join: LineJoin::Miter, dash, ..Default::default() };
+        pm.stroke_path(&p, &paint(c, alpha), &st, Transform::identity(), None);
+    }
+}
+
+fn arc_points(cx: f32, cy: f32, r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
+    let steps = (((a1 - a0).abs() / TAU) * 72.0).ceil().max(2.0) as usize;
+    (0..=steps).map(|i| a0 + (a1 - a0) * i as f32 / steps as f32).map(|a| (cx + a.cos() * r, cy + a.sin() * r)).collect()
+}
+
+/// The aperture: a six-blade camera iris. It opens with the voice and twists as it
+/// opens, closes to a pinhole (showing the gold diamond) in silence and spins while
+/// transcribing. Hands-free dashes the outer ring. See docs/DESIGN.md.
+fn aperture(pm: &mut Pixmap, cx: f32, cy: f32, s: f32, sc: &Scene, alpha: f32) {
+    const B: usize = 6;
+    let half = PI / B as f32;
+    let r = APERTURE_R * s;
+    let open = sc.open.clamp(0.05, 0.95);
+    let twist = sc.spin + open * 1.3;
+    let ro = r * open;
+    let err = sc.kind == Kind::NoticeErr;
+    let accent = if err { DANGER } else { GOLD };
+
+    // Blade disc.
+    let mut pb = PathBuilder::new();
+    pb.push_circle(cx, cy, r);
+    if let Some(p) = pb.finish() {
+        pm.fill_path(&p, &paint(GOLD, 0.09 * alpha), FillRule::Winding, Transform::identity(), None);
+    }
+    // Opening: a hexagon punched back to the plate colour.
+    let vr = ro / half.cos();
+    let hex: Vec<(f32, f32)> = (0..B).map(|i| twist + i as f32 * TAU / B as f32 + half).map(|a| (cx + a.cos() * vr, cy + a.sin() * vr)).collect();
+    if let Some(p) = polygon(&hex, true) {
+        pm.fill_path(&p, &paint(PLATE, alpha), FillRule::Winding, Transform::identity(), None);
+    }
+    // Blade edges: rays leaving each hexagon vertex tangentially, ending on the rim.
+    for i in 0..B {
+        let th = twist + i as f32 * TAU / B as f32;
+        let a0 = th - half;
+        let (vx, vy) = (cx + a0.cos() * vr, cy + a0.sin() * vr);
+        let (dx, dy) = (-th.sin(), th.cos());
+        let (ox, oy) = (vx - cx, vy - cy);
+        let b = ox * dx + oy * dy;
+        let c = ox * ox + oy * oy - r * r;
+        let u = -b + (b * b - c).max(0.0).sqrt();
+        line(pm, (vx, vy), (vx + dx * u, vy + dy * u), (0.9 * s).max(1.0), GOLD_DIM, alpha);
+    }
+    polyline(pm, &hex, true, (0.9 * s).max(1.0), accent, alpha, None);
+
+    // Outer ring: dashed, turning and gold in hands-free.
+    let hands_free = sc.kind == Kind::HandsFree;
+    let disc = arc_points(cx, cy, r, 0.0, TAU);
+    let dash = if hands_free { StrokeDash::new(vec![2.4 * s, 1.8 * s], if sc.reduce_motion { 0.0 } else { -sc.t * 8.0 * s }) } else { None };
+    polyline(pm, &disc, true, 1.0 * s, if hands_free { GOLD } else { GOLD_DIM }, alpha, dash);
+    // Lens markings.
+    for i in 0..24 {
+        let a = i as f32 * TAU / 24.0;
+        let l = if i % 2 == 1 { 0.06 } else { 0.12 };
+        let (sn, cs) = a.sin_cos();
+        line(pm, (cx + cs * r * 1.06, cy + sn * r * 1.06), (cx + cs * r * (1.06 + l), cy + sn * r * (1.06 + l)), 0.8 * s, GOLD, 0.35 * alpha);
+    }
+    // Loading progress on the rim.
+    if let Kind::Loading(Some(p)) = sc.kind {
+        if p > 0.0 {
+            let pts = arc_points(cx, cy, r, -PI / 2.0, -PI / 2.0 + TAU * p.min(1.0));
+            polyline(pm, &pts, false, 1.8 * s, GOLD, alpha, None);
+        }
+    }
+    // The diamond shows through the pinhole when nearly closed.
+    let show = if err { 1.0 } else { (1.0 - open / 0.3).clamp(0.0, 1.0) };
+    if show > 0.0 {
+        let d = (ro * 0.45).max(1.4 * s);
+        if let Some(p) = polygon(&[(cx, cy - d), (cx + d, cy), (cx, cy + d), (cx - d, cy)], true) {
+            pm.fill_path(&p, &paint(accent, 0.95 * show * alpha), FillRule::Winding, Transform::identity(), None);
         }
     }
 }
@@ -300,7 +364,7 @@ pub fn draw(pm: &mut Pixmap, fonts: &mut Fonts, sc: &Scene) {
 
     let cy = y + h / 2.0;
     let icx = x + (14.0 + IRIS_R) * s;
-    iris(pm, icx, cy, s, sc, alpha);
+    aperture(pm, icx, cy, s, sc, alpha);
 
     // Status label (mono, uppercase).
     let lx = icx + IRIS_R * s + 12.0 * s;

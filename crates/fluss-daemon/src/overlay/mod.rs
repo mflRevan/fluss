@@ -74,6 +74,8 @@ struct Anim {
     width: f32,
     levels: Vec<f32>,
     peak: f32,
+    open: f32,
+    spin: f32,
     t0: Instant,
     ui: Ui,
 }
@@ -115,6 +117,8 @@ fn run(rx: Receiver<Msg>, level: Level) {
         width: 120.0,
         levels: vec![0.0; 32],
         peak: 0.02,
+        open: 0.13,
+        spin: 0.0,
         t0: Instant::now(),
         ui: Ui::default(),
     };
@@ -202,15 +206,24 @@ fn run(rx: Receiver<Msg>, level: Level) {
             win.hide();
             continue;
         }
+        let t = a.t0.elapsed().as_secs_f32();
+        let target_open = render::aperture_target(kind, &a.levels, t);
+        if a.ui.reduce_motion {
+            a.open = target_open;
+        } else {
+            a.open += (target_open - a.open) * (1.0 - (-dt * 18.0).exp());
+            a.spin = (a.spin + dt * render::aperture_spin_speed(kind)) % std::f32::consts::TAU;
+        }
         let scene = Scene {
             kind,
             text: &text,
-            t: a.t0.elapsed().as_secs_f32(),
-            levels: &a.levels,
+            t,
             appear: a.appear,
             width: a.width,
             scale: win.scale(),
             reduce_motion: a.ui.reduce_motion,
+            open: a.open,
+            spin: a.spin,
         };
         win.present(&mut fonts, &scene);
     }
@@ -242,7 +255,8 @@ pub fn render_gallery(dir: &std::path::Path) -> anyhow::Result<()> {
             dark.set_color_rgba8(30, 30, 32, 255);
             pm.fill_rect(half, &dark, tiny_skia::Transform::identity(), None);
             let mut fg = tiny_skia::Pixmap::new(pm.width(), pm.height()).unwrap();
-            let sc = Scene { kind: *kind, text, t: 0.35, levels: &levels, appear: 1.0, width: w, scale, reduce_motion: false };
+            let open = render::aperture_target(*kind, &levels, 0.35);
+            let sc = Scene { kind: *kind, text, t: 0.35, appear: 1.0, width: w, scale, reduce_motion: false, open, spin: 0.4 };
             render::draw(&mut fg, &mut fonts, &sc);
             pm.draw_pixmap(0, 0, fg.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
             pm.save_png(dir.join(format!("{name}@{scale}x.png")))?;
