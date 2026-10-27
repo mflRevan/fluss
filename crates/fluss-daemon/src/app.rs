@@ -371,6 +371,9 @@ impl App {
             AudioEv::Chunk(c) => self.on_chunk(c),
             AudioEv::Opened { device, sample_rate } => {
                 self.mic = MicStatus { device, open: true, sample_rate, error: None };
+                if !self.mic_open {
+                    self.mic_open = true;
+                }
                 self.publish();
             }
             AudioEv::Closed => {

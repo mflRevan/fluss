@@ -42,14 +42,15 @@ impl Level {
 
 pub fn spawn(ev: Sender<Ev>) -> Sender<AudioCmd> {
     let (tx, rx) = crossbeam_channel::unbounded();
+    let me = tx.clone();
     std::thread::Builder::new()
         .name("fluss-audio".into())
-        .spawn(move || run(rx, ev))
+        .spawn(move || run(rx, me, ev))
         .expect("spawn audio thread");
     tx
 }
 
-fn run(rx: Receiver<AudioCmd>, ev: Sender<Ev>) {
+fn run(rx: Receiver<AudioCmd>, me: Sender<AudioCmd>, ev: Sender<Ev>) {
     let mut stream: Option<cpal::Stream> = None;
     let gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
     let mut want: Option<String> = None;
@@ -91,7 +92,7 @@ fn run(rx: Receiver<AudioCmd>, ev: Sender<Ev>) {
                 want = None;
                 continue;
             }
-            match open(name, ev.clone(), gain.clone()) {
+            match open(name, ev.clone(), gain.clone(), me.clone()) {
                 Ok((s, dev, rate)) => {
                     log::info!("microphone open: {dev} @ {rate} Hz");
                     let _ = ev.send(Ev::Audio(AudioEv::Opened { device: dev, sample_rate: rate }));
@@ -153,7 +154,7 @@ fn find_device(host: &cpal::Host, name: &str) -> anyhow::Result<cpal::Device> {
     host.default_input_device().ok_or_else(|| anyhow::anyhow!("no microphone found"))
 }
 
-fn open(name: &str, ev: Sender<Ev>, gain: Arc<AtomicU32>) -> anyhow::Result<(cpal::Stream, String, u32)> {
+fn open(name: &str, ev: Sender<Ev>, gain: Arc<AtomicU32>, me: Sender<AudioCmd>) -> anyhow::Result<(cpal::Stream, String, u32)> {
     let host = cpal::default_host();
     let dev = find_device(&host, name)?;
     let dev_name = device_name(&dev);
@@ -165,9 +166,20 @@ fn open(name: &str, ev: Sender<Ev>, gain: Arc<AtomicU32>) -> anyhow::Result<(cpa
     let config: cpal::StreamConfig = supported.into();
 
     let err_ev = ev.clone();
+    let want = name.to_string();
+    let g2 = gain.clone();
     let on_err = move |e: cpal::Error| {
-        log::warn!("audio stream error: {e}");
-        let _ = err_ev.send(Ev::Audio(AudioEv::Error(e.to_string())));
+        use cpal::ErrorKind::*;
+        match e.kind() {
+            // The device went away or changed: report it and reopen (retries every 2 s).
+            DeviceNotAvailable | DeviceChanged | StreamInvalidated | DeviceBusy | PermissionDenied | HostUnavailable => {
+                log::warn!("microphone lost: {e}; reopening");
+                let _ = err_ev.send(Ev::Audio(AudioEv::Error(e.to_string())));
+                let _ = me.send(AudioCmd::Open { device: want.clone(), gain: f32::from_bits(g2.load(Ordering::Relaxed)) });
+            }
+            // Overruns and similar glitches are harmless.
+            _ => log::debug!("audio glitch: {e}"),
+        }
     };
 
     let mut rs = Resampler::new(rate, channels);

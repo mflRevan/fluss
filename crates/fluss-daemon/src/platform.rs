@@ -245,22 +245,6 @@ mod other {
     use super::*;
 
     pub fn init_process() {}
-    /// Working set of every child process Fluss started (engine servers and their children).
-    pub fn children_memory_mb() -> Option<u64> {
-        let j = job()?;
-        unsafe {
-            #[repr(C)]
-            struct List {
-                assigned: u32,
-                listed: u32,
-                ids: [usize; 64],
-            }
-            let mut l = List { assigned: 0, listed: 0, ids: [0; 64] };
-            QueryInformationJobObject(Some(j), JobObjectBasicProcessIdList, &mut l as *mut _ as *mut _, std::mem::size_of::<List>() as u32, None).ok()?;
-            let total: u64 = l.ids[..(l.listed as usize).min(64)].iter().filter_map(|pid| process_memory_mb(*pid as u32)).sum();
-            Some(total)
-        }
-    }
 
     pub fn own_memory_mb() -> Option<u64> {
         None
