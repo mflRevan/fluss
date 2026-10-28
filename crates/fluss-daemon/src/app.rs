@@ -283,8 +283,11 @@ impl App {
             self.tick();
         }
         log::info!("shutting down");
+        // Tell open windows this is a deliberate quit (they close instead of restarting us).
+        self.hub.broadcast("quit", json!({}));
         let _ = self.engine.send(EngineCmd::Shutdown);
         self.overlay.hide();
+        std::thread::sleep(Duration::from_millis(150));
     }
 
     fn handle(&mut self, ev: Ev) {

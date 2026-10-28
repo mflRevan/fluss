@@ -214,6 +214,30 @@ mod win {
         unsafe { GetForegroundWindow().0 as u64 }
     }
 
+    /// End the process now, skipping DLL teardown. A normal exit runs every
+    /// loaded DLL's detach code (ONNX Runtime, DirectML, audio drivers), which
+    /// can deadlock when a model is mid-load and leave a zombie that holds the
+    /// IPC endpoint so Fluss can't start again. Children die with the job object.
+    pub fn hard_exit(code: i32) -> ! {
+        log::logger().flush();
+        unsafe {
+            let _ = TerminateProcess(GetCurrentProcess(), code as u32);
+        }
+        std::process::exit(code)
+    }
+
+    /// Stop other Fluss daemons that hold the IPC endpoint but no longer answer.
+    pub fn kill_stale_daemons() {
+        let me = std::process::id();
+        let mut cmd = std::process::Command::new("taskkill");
+        cmd.args(["/F", "/IM", "fluss-daemon.exe", "/FI", &format!("PID ne {me}")])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.status();
+    }
+
     const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
     pub fn set_autostart(enabled: bool) -> anyhow::Result<()> {
@@ -256,6 +280,11 @@ mod other {
     pub fn foreground_window() -> u64 {
         0
     }
+    pub fn hard_exit(code: i32) -> ! {
+        log::logger().flush();
+        std::process::exit(code)
+    }
+    pub fn kill_stale_daemons() {}
     pub fn set_autostart(enabled: bool) -> anyhow::Result<()> {
         let exe = std::env::current_exe()?;
         #[cfg(target_os = "linux")]

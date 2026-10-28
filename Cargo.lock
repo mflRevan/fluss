@@ -1191,6 +1191,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "embed-resource",
  "fluss-core",
  "serde",
  "serde_json",
@@ -1216,6 +1217,7 @@ dependencies = [
  "chrono",
  "cpal",
  "crossbeam-channel",
+ "embed-resource",
  "fluss-core",
  "fontdue",
  "interprocess",

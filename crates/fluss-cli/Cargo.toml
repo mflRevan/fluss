@@ -9,6 +9,9 @@ license.workspace = true
 name = "fluss"
 path = "src/main.rs"
 
+[build-dependencies]
+embed-resource = "3.0.12"
+
 [dependencies]
 fluss-core.workspace = true
 anyhow.workspace = true

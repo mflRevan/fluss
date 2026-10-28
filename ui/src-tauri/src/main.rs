@@ -10,7 +10,7 @@ use fluss_core::ipc::Client;
 use fluss_core::protocol::Message;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 const PAGES: &[&str] = &["home", "dictionary", "shortcuts", "model", "audio", "text", "output", "advanced", "about"];
 
@@ -96,6 +96,11 @@ fn event_loop(app: AppHandle) {
                 while let Ok(msg) = c.read_message() {
                     if let Message::Event { event, data } = msg {
                         // A warm instance opens the popup straight from the event (no process launch).
+                        // The daemon is quitting on purpose: close with it instead of restarting it.
+                        if event == "quit" {
+                            quit(&app);
+                            return;
+                        }
                         if event == "popup" {
                             let h = app.clone();
                             let _ = app.run_on_main_thread(move || show_popup(&h));
@@ -110,6 +115,65 @@ fn event_loop(app: AppHandle) {
         backoff = (backoff * 2).min(Duration::from_secs(3));
     }
 }
+
+/// Exit, and make sure the process is really gone even if teardown stalls.
+fn quit(app: &AppHandle) {
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_secs(2));
+        hard_exit();
+    });
+    app.exit(0);
+}
+
+/// End the process without DLL teardown: a normal exit can deadlock in WebView2
+/// shutdown and leave a hung instance that swallows every later launch.
+fn hard_exit() -> ! {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+        TerminateProcess(GetCurrentProcess(), 0);
+    }
+    std::process::exit(0)
+}
+
+/// A previous instance that hangs (e.g. stuck while exiting) would still own the
+/// single-instance lock, so launching Fluss would silently do nothing. Stop it.
+#[cfg(windows)]
+fn kill_hung_instances() {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetWindowThreadProcessId, SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_NULL};
+    let title: Vec<u16> = "com.mflrevan.fluss-siw\0".encode_utf16().collect();
+    let me = std::process::id();
+    let mut after = std::ptr::null_mut();
+    unsafe {
+        loop {
+            let hwnd = FindWindowExW(std::ptr::null_mut(), after, std::ptr::null(), title.as_ptr());
+            if hwnd.is_null() {
+                break;
+            }
+            after = hwnd;
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == 0 || pid == me {
+                continue;
+            }
+            let mut res = 0usize;
+            if SendMessageTimeoutW(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 1500, &mut res) != 0 {
+                continue; // alive: the single-instance plugin hands our arguments to it
+            }
+            let h = OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, 0, pid);
+            if !h.is_null() {
+                TerminateProcess(h, 1);
+                WaitForSingleObject(h, 3000);
+                CloseHandle(h);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn kill_hung_instances() {}
 
 fn keep_warm() -> bool {
     fluss_core::config::Config::load().map(|c| c.ui.keep_warm).unwrap_or(false)
@@ -135,7 +199,29 @@ fn main_window(app: &AppHandle, page: Option<&str>) -> Option<WebviewWindow> {
         .background_color(tauri::webview::Color(0, 0, 0, 255))
         .build()
         .ok()
+        .inspect(set_taskbar_icon)
 }
+
+/// Tauri only sets the small window icon, so the taskbar falls back to the shell's
+/// cached icon for the exe path, which can be stale after an update. Set the
+/// large icon from our own exe resource.
+#[cfg(windows)]
+fn set_taskbar_icon(w: &WebviewWindow) {
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{LoadImageW, SendMessageW, ICON_BIG, IMAGE_ICON, LR_DEFAULTCOLOR, WM_SETICON};
+    let Ok(hwnd) = w.hwnd() else { return };
+    unsafe {
+        // tauri-build embeds the app icon under this resource id.
+        let id = tauri::utils::platform::WINDOWS_APP_ICON_RESOURCE_ID as usize as *const u16;
+        let icon = LoadImageW(GetModuleHandleW(std::ptr::null()), id, IMAGE_ICON, 64, 64, LR_DEFAULTCOLOR);
+        if !icon.is_null() {
+            SendMessageW(hwnd.0 as _, WM_SETICON, ICON_BIG as usize, icon as isize);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn set_taskbar_icon(_w: &WebviewWindow) {}
 
 fn show_main(app: &AppHandle, page: Option<&str>) {
     let existed = app.get_webview_window("main").is_some();
@@ -281,7 +367,7 @@ fn popup_finish(app: AppHandle, hwnd: u64) {
 fn maybe_exit(app: AppHandle) {
     let main_visible = app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(false);
     if !main_visible && !keep_warm() {
-        app.exit(0);
+        quit(&app);
     }
 }
 
@@ -310,10 +396,11 @@ fn open_path(path: String) {
 
 #[tauri::command]
 fn app_quit(app: AppHandle) {
-    app.exit(0);
+    quit(&app);
 }
 
 fn main() {
+    kill_hung_instances();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| handle_args(app, &argv)))
         .manage(Pool::default())
@@ -338,12 +425,17 @@ fn main() {
                 WindowEvent::Destroyed => {
                     let app = window.app_handle();
                     if !keep_warm() {
-                        app.exit(0);
+                        quit(app);
                     }
                 }
                 _ => {}
             }
         })
-        .run(tauri::generate_context!())
-        .expect("failed to run Fluss settings");
+        .build(tauri::generate_context!())
+        .expect("failed to start Fluss settings")
+        .run(|_, event| {
+            if let RunEvent::Exit = event {
+                hard_exit();
+            }
+        });
 }

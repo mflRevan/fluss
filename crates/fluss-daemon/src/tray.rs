@@ -54,15 +54,17 @@ fn look(st: &Status) -> Look {
     }
 }
 
-/// 32x32 RGBA: a small aperture (six-blade iris) in gold.
+/// 32x32 RGBA: the Fluss mark, a round aperture filling the icon (transparent corners),
+/// on a dark plate so it reads on light and dark taskbars.
 /// Off: closed and dim. Idle: nearly closed, gold diamond in the pinhole.
-/// Live: wide open, bright rim. Busy: half open. Problem: closed, red core.
+/// Live: wide open. Busy: half open. Problem: closed, red core.
 fn icon_rgba(l: Look) -> Vec<u8> {
     use std::f32::consts::{PI, TAU};
     use tiny_skia::*;
     const GOLD: (u8, u8, u8) = (227, 176, 75);
     const DIM: (u8, u8, u8) = (140, 107, 42);
     const RED: (u8, u8, u8) = (229, 72, 77);
+    const PLATE: (u8, u8, u8) = (11, 10, 8);
     let paint = |c: (u8, u8, u8), a: f32| {
         let mut p = Paint::default();
         p.anti_alias = true;
@@ -77,7 +79,7 @@ fn icon_rgba(l: Look) -> Vec<u8> {
         pb.finish().unwrap()
     };
     let mut pm = Pixmap::new(32, 32).unwrap();
-    let (cx, cy, r) = (16.0f32, 16.0f32, 14.5f32);
+    let (cx, cy, r) = (16.0f32, 16.0f32, 15.0f32);
     let open = match l {
         Look::Live => 0.62,
         Look::Busy => 0.4,
@@ -85,15 +87,18 @@ fn icon_rgba(l: Look) -> Vec<u8> {
         _ => 0.16,
     };
     let (rim, a) = match l {
-        Look::Live => (GOLD, 1.0),
-        Look::Off => (DIM, 0.6),
-        _ => (DIM, 1.0),
+        Look::Off => (DIM, 0.7f32),
+        Look::Problem => (DIM, 1.0),
+        _ => (GOLD, 1.0),
     };
     let half = PI / 6.0;
     let twist = 0.3 + open * 1.3;
     let vr = r * open / half.cos();
     let hex: Vec<(f32, f32)> = (0..6).map(|i| twist + i as f32 * TAU / 6.0 + half).map(|t| (cx + t.cos() * vr, cy + t.sin() * vr)).collect();
-    // Blade disc with the opening cut out (even-odd), so the taskbar shows through.
+    let mut pb = PathBuilder::new();
+    pb.push_circle(cx, cy, r);
+    pm.fill_path(&pb.finish().unwrap(), &paint(PLATE, a.max(0.9)), FillRule::Winding, Transform::identity(), None);
+    // Blade tint with the opening cut out (even-odd).
     let mut pb = PathBuilder::new();
     pb.push_circle(cx, cy, r);
     pb.move_to(hex[0].0, hex[0].1);
@@ -117,7 +122,7 @@ fn icon_rgba(l: Look) -> Vec<u8> {
     pm.stroke_path(&path(&hex), &paint(edge, a), &thin, Transform::identity(), None);
     let mut pb = PathBuilder::new();
     pb.push_circle(cx, cy, r);
-    pm.stroke_path(&pb.finish().unwrap(), &paint(rim, a), &Stroke { width: 2.0, ..Default::default() }, Transform::identity(), None);
+    pm.stroke_path(&pb.finish().unwrap(), &paint(rim, a), &Stroke { width: 1.8, ..Default::default() }, Transform::identity(), None);
     if open < 0.3 {
         let core = if l == Look::Problem { RED } else if l == Look::Off { DIM } else { GOLD };
         let d = 3.4;
@@ -185,24 +190,41 @@ pub fn run_main_loop(rx: Receiver<Status>, ev: Sender<Ev>, quit: std::sync::Arc<
         &quit_item,
     ]);
     let mut current = Look::Off;
-    let tray = TrayIconBuilder::new()
-        .with_menu(Box::new(menu))
-        .with_menu_on_left_click(false)
-        .with_tooltip("Fluss")
-        .with_icon(Icon::from_rgba(icon_rgba(current), 32, 32).unwrap())
-        .build();
-    let tray = match tray {
-        Ok(t) => Some(t),
-        Err(e) => {
-            log::error!("tray icon: {e}");
-            None
-        }
+    let build = |l: Look| {
+        TrayIconBuilder::new()
+            .with_menu(Box::new(menu.clone()))
+            .with_menu_on_left_click(false)
+            .with_tooltip("Fluss")
+            .with_icon(Icon::from_rgba(icon_rgba(l), 32, 32).unwrap())
+            .build()
     };
+    // At login the taskbar may not exist yet; keep trying instead of running without a tray.
+    let mut tray = None;
+    let mut next_try = std::time::Instant::now();
+    let mut failures = 0u32;
+    let mut last: Option<Status> = None;
 
     let send = |c: TrayCmd| {
         let _ = ev.send(Ev::Tray(c));
     };
     while !quit.load(Ordering::Relaxed) {
+        if tray.is_none() && std::time::Instant::now() >= next_try {
+            match build(current) {
+                Ok(t) => {
+                    if failures > 0 {
+                        log::info!("tray icon created after {failures} attempts");
+                    }
+                    tray = Some(t); // statuses that arrived meanwhile are in `last`
+                }
+                Err(e) => {
+                    if failures == 0 {
+                        log::warn!("tray icon: {e}; retrying");
+                    }
+                    failures += 1;
+                    next_try = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                }
+            }
+        }
         unsafe {
             MsgWaitForMultipleObjects(None, false, 60, QS_ALLINPUT);
             let mut msg = MSG::default();
@@ -236,14 +258,19 @@ pub fn run_main_loop(rx: Receiver<Status>, ev: Sender<Ev>, quit: std::sync::Arc<
                 send(TrayCmd::Open);
             }
         }
-        let mut latest = None;
+        let mut latest = last.take();
         while let Ok(st) = rx.try_recv() {
             latest = Some(st);
         }
-        if let (Some(st), Some(t)) = (latest, tray.as_ref()) {
+        let Some(t) = tray.as_ref() else {
+            last = latest;
+            continue;
+        };
+        if let Some(st) = latest {
             let l = look(&st);
-            if l != current {
+            if l != current || failures > 0 {
                 current = l;
+                failures = 0;
                 let _ = t.set_icon(Icon::from_rgba(icon_rgba(l), 32, 32).ok());
             }
             let _ = t.set_tooltip(Some(tooltip(&st)));
@@ -264,5 +291,28 @@ pub fn run_main_loop(rx: Receiver<Status>, _ev: Sender<Ev>, quit: std::sync::Arc
     let _ = (icon_rgba, tooltip, look);
     while !quit.load(std::sync::atomic::Ordering::Relaxed) {
         let _ = rx.recv_timeout(std::time::Duration::from_millis(200));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every state renders a 32x32 icon with transparent corners; set FLUSS_TRAY_DUMP=<dir> to save PNGs.
+    #[test]
+    fn icons() {
+        let dump = std::env::var_os("FLUSS_TRAY_DUMP").map(std::path::PathBuf::from);
+        for (name, l) in [("off", Look::Off), ("idle", Look::Idle), ("busy", Look::Busy), ("live", Look::Live), ("problem", Look::Problem)] {
+            let px = icon_rgba(l);
+            assert_eq!(px.len(), 32 * 32 * 4);
+            assert_eq!(px[3], 0, "{name}: corner must be transparent");
+            if let Some(d) = &dump {
+                let mut pm = tiny_skia::Pixmap::new(32, 32).unwrap();
+                for (dst, src) in pm.pixels_mut().iter_mut().zip(px.chunks_exact(4)) {
+                    *dst = tiny_skia::ColorU8::from_rgba(src[0], src[1], src[2], src[3]).premultiply();
+                }
+                pm.save_png(d.join(format!("tray-{name}.png"))).unwrap();
+            }
+        }
     }
 }

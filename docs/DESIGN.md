@@ -70,7 +70,11 @@ pinhole when it is nearly closed. The opening twists as it opens (rotation += 1.
   with progress and draws a `--gold` progress arc on the rim
 - notice ok/err: opening held at 34% / closed with a `--danger` diamond and outline
 - tray: static apertures per state (closed dim = off, pinhole + diamond = ready, half = busy,
-  open with gold rim = recording, red core = problem)
+  wide open = recording, red core = problem)
+
+The mark (app icon, tray, favicon, logo) is the round aperture itself, filling the icon edge to edge on
+a dark plate with a gold rim; the corners stay transparent. `scripts/aperture-icon.py` generates the
+app icon source (`ui/src-tauri/icons/icon.svg`), the favicon and the 24px logo.
 
 ## Voice & copy
 

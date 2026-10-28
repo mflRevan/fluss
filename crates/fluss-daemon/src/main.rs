@@ -44,18 +44,7 @@ fn main() {
     logging::init();
 
     // Single instance: the IPC endpoint is the lock.
-    let listener = match fluss_core::ipc::listen() {
-        Ok(l) => l,
-        Err(_) => {
-            // Already running: a manual launch means "show me Fluss".
-            if !autostart {
-                if let Ok(mut c) = fluss_core::ipc::Client::connect() {
-                    let _ = c.call("ui.open", serde_json::json!({}));
-                }
-            }
-            return;
-        }
-    };
+    let Some(listener) = claim_endpoint(autostart) else { return };
     log::info!("Fluss {} starting (pid {}, autostart: {autostart})", fluss_core::VERSION, std::process::id());
     platform::init_process();
 
@@ -88,4 +77,37 @@ fn main() {
     tray::run_main_loop(tray_rx, tx, quit);
     let _ = controller.join();
     log::info!("bye");
+    platform::hard_exit(0);
+}
+
+/// Take the IPC endpoint, or hand over to the daemon that has it. A daemon
+/// that is still shutting down (or hung) holds the endpoint without answering:
+/// wait for it, then stop it, instead of exiting silently.
+fn claim_endpoint(autostart: bool) -> Option<interprocess::local_socket::Listener> {
+    let start = std::time::Instant::now();
+    let mut killed = false;
+    loop {
+        match fluss_core::ipc::listen() {
+            Ok(l) => return Some(l),
+            Err(e) => {
+                if let Ok(mut c) = fluss_core::ipc::Client::connect() {
+                    // Already running: a manual launch means "show me Fluss".
+                    if !autostart {
+                        let _ = c.call("ui.open", serde_json::json!({}));
+                    }
+                    return None;
+                }
+                let waited = start.elapsed();
+                if !killed && waited > std::time::Duration::from_secs(3) {
+                    log::warn!("IPC endpoint is taken but nobody answers ({e:#}); stopping the stale daemon");
+                    platform::kill_stale_daemons();
+                    killed = true;
+                } else if waited > std::time::Duration::from_secs(8) {
+                    log::error!("could not start: {e:#}");
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
 }
