@@ -22,7 +22,7 @@
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="bar">
-  <a class="mark" href="#top" aria-label="Fluss, back to top"><span class="mark-glyph" aria-hidden="true">◆</span>FLUSS</a>
+  <a class="mark" href="#top" aria-label="Fluss, back to top"><svg class="mark-glyph" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12.00" cy="12.00" r="11.35" fill="#0B0A08" stroke="#E3B04B" stroke-width="1.30"/><circle cx="12.00" cy="12.00" r="10.70" fill="#E3B04B" fill-opacity="0.13"/><path d="M16.58 13.14L8.07 21.95M13.30 16.54L1.42 13.57M8.72 15.39L5.35 3.62M7.42 10.86L15.93 2.05M10.70 7.46L22.58 10.43M15.28 8.61L18.65 20.38" stroke="#8C6B2A" stroke-width="0.80" stroke-linecap="round"/><path d="M13.30 16.54 8.72 15.39 7.42 10.86 10.70 7.46 15.28 8.61 16.58 13.14Z" fill="#0B0A08" stroke="#E3B04B" stroke-width="1.10" stroke-linejoin="round"/><path d="M12.00 9.96 14.04 12.00 12.00 14.04 9.96 12.00Z" fill="#E3B04B"/></svg>FLUSS</a>
   <nav aria-label="Sections">
     <a href="#flow">Flow</a>
     <a href="#seam">Seams</a>
@@ -56,9 +56,18 @@
     <figcaption class="readout">
       <div><span>Source</span><b id="ro-src">simulated</b></div>
       <div><span>Level</span><b id="ro-level">−∞ dB</b></div>
-      <div><span>Decode</span><b>21 ms</b></div>
+      <div><span>Decode</span><b id="ro-decode">21 ms</b></div>
       <button class="mic-btn" id="mic-btn" type="button">Try with your mic</button>
     </figcaption>
+    <div class="live" id="live" hidden aria-live="polite">
+      <div class="live-head">
+        <span class="live-model">Phonon 2.5 English · in your browser · WebGPU</span>
+        <span class="live-status" id="live-status"></span>
+        <span class="live-track" aria-hidden="true"><i id="live-bar"></i></span>
+      </div>
+      <p class="live-text"><span id="live-done"></span><span class="live-now" id="live-now"></span><span class="caret" aria-hidden="true"></span></p>
+      <p class="live-note">Runs entirely on your machine. The model (<a href="https://huggingface.co/FermionResearch/Phonon-2.5-English">Phonon 2.5 English</a>, CC-BY-4.0, based on NVIDIA Parakeet TDT 0.6B v3) downloads once from Hugging Face; your audio never leaves the page.</p>
+    </div>
   </figure>
 </section>
 

@@ -174,9 +174,29 @@
   new IntersectionObserver((e) => (heroVisible = e[0].isIntersecting)).observe(heroCanvas);
 
   const micBtn = document.getElementById("mic-btn");
+  const live = document.getElementById("live");
+  const liveStatus = document.getElementById("live-status");
+  const liveBar = document.getElementById("live-bar");
+  const liveDone = document.getElementById("live-done");
+  const liveNow = document.getElementById("live-now");
+  const roDecode = document.getElementById("ro-decode");
+  const liveUi = {
+    status(msg, p = null, kind = "") {
+      liveStatus.textContent = msg;
+      live.dataset.state = kind;
+      liveBar.style.transform = `scaleX(${p == null ? 0 : p})`;
+    },
+    text(done, now, ms) {
+      liveDone.textContent = done ? clipText(done) : "";
+      liveNow.textContent = now ? (done ? " " : "") + now : "";
+      if (ms != null) roDecode.textContent = `${ms} ms`;
+    },
+  };
+  let clipText = (t) => t;
   micBtn.setAttribute("aria-pressed", "false");
   micBtn.addEventListener("click", async () => {
     if (mic) {
+      mic.stopLive?.();
       mic.stream.getTracks().forEach((t) => t.stop());
       mic.ctx.close();
       mic = null;
@@ -186,8 +206,13 @@
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const ac = new AudioContext();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      let ac;
+      try {
+        ac = new AudioContext({ sampleRate: 16000 }); // the model's rate; the browser resamples
+      } catch {
+        ac = new AudioContext();
+      }
       const src = ac.createMediaStreamSource(stream);
       const analyser = ac.createAnalyser();
       analyser.fftSize = 1024;
@@ -196,6 +221,16 @@
       micBtn.textContent = "Stop mic";
       micBtn.setAttribute("aria-pressed", "true");
       roSrc.textContent = "microphone";
+      live.hidden = false;
+      const m = mic;
+      import("./phonon/live.js")
+        .then(async (mod) => {
+          clipText = mod.clip;
+          const stop = await mod.startLive(ac, src, liveUi);
+          if (mic === m) m.stopLive = stop;
+          else stop();
+        })
+        .catch((e) => liveUi.status(`Live transcription unavailable (${e.message}).`, null, "error"));
     } catch {
       micBtn.textContent = "Mic unavailable";
     }

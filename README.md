@@ -96,6 +96,9 @@ CI on GitHub only runs the cached Rust tests, and only when Rust code changes. T
 build (UI + Tauri on Windows, Linux and macOS) is manual: Actions → CI → *Run workflow*.
 
 The website (`site/`, live at https://fluss-mauve.vercel.app) is static HTML/CSS/JS with no build step.
+Its "Try with your mic" runs Phonon 2.5 English in the browser on WebGPU: the page downloads the model from
+Hugging Face once and rebuilds the weights for ONNX Runtime Web from it; only weight-less graphs are hosted
+(`site/phonon/`, made by [`scripts/phonon-web/build.py`](scripts/phonon-web/build.py)).
 
 Releasing: push a version tag (`git tag v0.1.0; git push origin v0.1.0`). The *Release* workflow builds the installer,
 publishes a GitHub release and redeploys the website to Vercel (needs the `VERCEL_TOKEN` repo secret).
