@@ -13,7 +13,7 @@ import type {
 } from "./types";
 
 const defaults: Config = {
-  general: { autostart: true, autostart_delay_s: 4, onboarded: true, sounds: true, sound_volume: 45, history: true },
+  general: { autostart: true, autostart_delay_s: 4, onboarded: true, sounds: true, sound_volume: 45, history: true, check_updates: true },
   model: {
     id: "phonon-2.5-en",
     device: "auto",
@@ -314,7 +314,29 @@ export function mockBackend() {
     config_path: "C:\\Users\\you\\AppData\\Roaming\\Fluss\\config.toml",
     data_path: "C:\\Users\\you\\AppData\\Local\\Fluss",
     hotkeys: { push_to_talk: "Ctrl+Win", hands_free: "Ctrl+Win+Space", add_rule: "Ctrl+Win+R", paused: false },
+    install: { kind: "installed", dir: "C:\\Users\\you\\AppData\\Local\\Fluss", registered_dir: null, registered_version: null },
+    update: {
+      current: "0.1.0",
+      latest: "0.1.0",
+      available: false,
+      required: false,
+      skipped: false,
+      message: null,
+      notes_url: null,
+      checked_at: Date.now() - 2 * 3600_000,
+      checking: false,
+      downloading: null,
+      error: null,
+      auto: true,
+      updated_from: null,
+    },
   };
+  // Dev: `?update` offers a new version, `?update=required` an unsupported one, `?skew` a stale daemon.
+  if (params.has("update")) {
+    Object.assign(status.update, { latest: "0.2.0", available: true, notes_url: "https://github.com/mflRevan/fluss/releases" });
+    if (params.get("update") === "required") Object.assign(status.update, { required: true, message: "This version has a bug that can drop words. Please update." });
+  }
+  if (params.has("skew")) status.version = "0.0.9";
   if (params.has("phase")) status.model.phase = params.get("phase") as any;
   if (params.has("listening")) {
     status.phase = "listening";
@@ -325,6 +347,7 @@ export function mockBackend() {
   const emitStatus = () => {
     status.uptime_s = Math.floor((Date.now() - start) / 1000);
     status.onboarded = cfg.general.onboarded;
+    status.update.auto = cfg.general.check_updates;
     status.hotkeys.push_to_talk = cfg.hotkeys.push_to_talk;
     status.hotkeys.hands_free = cfg.hotkeys.hands_free;
     status.hotkeys.add_rule = cfg.hotkeys.add_rule;
@@ -544,6 +567,35 @@ export function mockBackend() {
     "autostart.set": (p) => ((cfg.general.autostart = !!p.enabled), true),
     "logs.path": () => "C:\\Users\\you\\AppData\\Local\\Fluss\\logs",
     "daemon.quit": () => true,
+    "update.status": () => deepClone(status.update),
+    "update.check": () =>
+      new Promise((res) => {
+        status.update.checking = true;
+        emitStatus();
+        setTimeout(() => {
+          Object.assign(status.update, { checking: false, checked_at: Date.now(), error: null });
+          emitStatus();
+          res(deepClone(status.update));
+        }, 900);
+      }),
+    "update.install": () => {
+      if (!status.update.available) throw new Error(`Fluss ${status.update.current} is up to date`);
+      status.update.downloading = 0;
+      const tick = setInterval(() => {
+        status.update.downloading = Math.min(1, (status.update.downloading ?? 0) + 0.08);
+        emitStatus();
+        if (status.update.downloading >= 1) {
+          clearInterval(tick);
+          emit("notice", { kind: "info", text: "Installing the update. Fluss restarts in a moment." });
+        }
+      }, 150);
+      return { version: status.update.latest };
+    },
+    "update.skip": (p) => {
+      status.update.skipped = p?.version !== null;
+      emitStatus();
+      return true;
+    },
     "dictation.start": () => true,
     "dictation.stop": () => true,
     "dictation.cancel": () => true,
@@ -569,6 +621,12 @@ export function mockBackend() {
     },
     async invoke(cmd: string, args?: Record<string, unknown>): Promise<any> {
       console.debug("[mock invoke]", cmd, args);
+      if (cmd === "app_version") return "0.1.0";
+      if (cmd === "restart_daemon") {
+        await new Promise((r) => setTimeout(r, 900));
+        status.version = "0.1.0";
+        emitStatus();
+      }
       return undefined;
     },
   };

@@ -38,6 +38,7 @@ use crate::overlay::{OvState, Overlay};
 use crate::platform::{self, FocusCtx};
 use crate::sounds::{self, Sound};
 use crate::tray::TrayCmd;
+use crate::updater::{Outcome, UpdateEv, Updater};
 
 pub enum Ev {
     Hotkey(HotkeyEv),
@@ -47,6 +48,7 @@ pub enum Ev {
     Ipc(IpcCall),
     Install(InstallProgress),
     Tray(TrayCmd),
+    Update(UpdateEv),
 }
 
 const S: fn(f32) -> usize = |secs| (secs * SR as f32) as usize;
@@ -175,6 +177,10 @@ pub struct App {
     last_level: Instant,
     mic_close_at: Option<Instant>,
     quit: bool,
+    install_info: InstallInfo,
+    updater: Updater,
+    /// A check started from the tray reports its result in the overlay.
+    tray_check: bool,
 }
 
 fn now_ms() -> u64 {
@@ -192,14 +198,19 @@ pub struct Handles {
 
 impl App {
     pub fn new(tx: Sender<Ev>, rx: Receiver<Ev>, h: Handles, autostart: bool) -> Self {
+        let mut damaged = Vec::new();
         let cfg = Config::load().unwrap_or_else(|e| {
-            log::error!("config: {e:#}; using defaults");
+            damaged.extend(set_aside(&fluss_core::paths::config_file(), "settings", &format!("{e:#}")));
             Config::default()
         });
         let rules = RuleSet::load().unwrap_or_else(|e| {
-            log::error!("rules: {e:#}");
+            damaged.extend(set_aside(&fluss_core::paths::rules_file(), "dictionary", &format!("{e:#}")));
             RuleSet::default()
         });
+        let mut state = crate::lifecycle::State::load();
+        let prev_version = crate::lifecycle::on_start(&mut state);
+        let install_info = crate::lifecycle::install_info();
+        log::info!("running from {} ({})", install_info.dir, install_info.kind);
         let matcher = rules.matcher();
         let ring = Ring::new(S(cfg.audio.preroll_ms as f32 / 1000.0).max(1));
         let mut app = Self {
@@ -240,6 +251,9 @@ impl App {
             last_level: Instant::now(),
             mic_close_at: None,
             quit: false,
+            install_info,
+            updater: Updater::new(state, prev_version.clone()),
+            tray_check: false,
             cfg,
         };
         app.model = ModelStatus { id: app.cfg.model.id.clone(), name: EngineSpec::from_config(&app.cfg).name(), ..Default::default() };
@@ -247,9 +261,16 @@ impl App {
         app.overlay.configure(&app.cfg.ui);
         let _ = app.engine.send(EngineCmd::Configure(EngineSpec::from_config(&app.cfg)));
         if app.cfg.general.autostart {
-            if let Err(e) = platform::set_autostart(true) {
-                log::warn!("autostart: {e:#}");
+            crate::lifecycle::repair_autostart(&app.install_info);
+        }
+        for what in &damaged {
+            app.overlay.notice(&format!("Your {what} file couldn't be read; Fluss kept a copy and started fresh"), true);
+        }
+        if let Some(prev) = prev_version.filter(|p| fluss_core::version::newer(fluss_core::VERSION, p)) {
+            if damaged.is_empty() {
+                app.overlay.notice(&format!("Updated to Fluss {}", fluss_core::VERSION), false);
             }
+            log::info!("first start after updating from {prev}");
         }
         if app.cfg.general.onboarded {
             if app.cfg.audio.keep_mic_open {
@@ -299,6 +320,7 @@ impl App {
             Ev::Ipc(call) => self.on_ipc(call),
             Ev::Install(p) => self.on_install(p),
             Ev::Tray(t) => self.on_tray(t),
+            Ev::Update(u) => self.on_update(u),
         }
     }
 
@@ -339,6 +361,8 @@ impl App {
                 add_rule: self.cfg.hotkeys.add_rule.to_string(),
                 paused: hotkeys::PAUSED.load(Ordering::Relaxed),
             },
+            install: self.install_info.clone(),
+            update: self.updater.status(self.cfg.general.check_updates),
         }
     }
 
@@ -1196,6 +1220,27 @@ impl App {
 
     fn tick(&mut self) {
         let now = Instant::now();
+        if self.updater.due(self.cfg.general.check_updates) {
+            self.updater.check(&self.tx, None);
+        }
+        // A downloaded update waits for the current dictation to finish.
+        if self.session.is_none() {
+            if let Some((path, reopen)) = self.updater.take_ready() {
+                match crate::updater::launch_installer(&path, reopen) {
+                    Ok(()) => {
+                        self.notice("info", "Installing the update. Fluss restarts in a moment.");
+                        self.quit = true;
+                        return;
+                    }
+                    Err(e) => {
+                        log::error!("update: {e:#}");
+                        self.updater.set_error(format!("{e:#}"));
+                        self.notice("error", "Couldn't start the update installer");
+                        self.publish();
+                    }
+                }
+            }
+        }
         if let Some(t) = self.load_at {
             if now >= t {
                 self.load_at = None;
@@ -1428,7 +1473,58 @@ impl App {
                 hotkeys::PAUSED.store(p, Ordering::Relaxed);
                 self.publish();
             }
+            TrayCmd::Update => platform::open_ui(&["--page", "about"]),
+            TrayCmd::CheckUpdates => {
+                self.tray_check = true;
+                self.updater.check(&self.tx, None);
+                self.publish();
+            }
             TrayCmd::Quit => self.quit = true,
+        }
+    }
+
+    // ------------------------------------------------------------- updates
+
+    fn on_update(&mut self, u: UpdateEv) {
+        match u {
+            UpdateEv::Checked(r) => {
+                let (waiters, outcome) = self.updater.on_checked(r);
+                let st = self.updater.status(self.cfg.general.check_updates);
+                for w in waiters {
+                    w.ok(serde_json::to_value(&st).unwrap_or_default());
+                }
+                let from_tray = std::mem::take(&mut self.tray_check) && self.session.is_none();
+                match outcome {
+                    Outcome::Available(v) => self.notice("info", &format!("Fluss {v} is available")),
+                    Outcome::Unsupported(msg) => {
+                        let text = msg.unwrap_or_else(|| "This version of Fluss is no longer supported. Please update.".into());
+                        self.notice("error", &text);
+                        if self.session.is_none() && !from_tray {
+                            self.overlay.notice(&text, true);
+                        }
+                    }
+                    Outcome::Nothing => {}
+                }
+                if from_tray {
+                    let text = match (&st.error, st.available, &st.latest) {
+                        (Some(_), _, _) => "Couldn't check for updates".to_string(),
+                        (_, true, Some(v)) => format!("Fluss {v} is available. Open Fluss to install it."),
+                        _ => format!("Fluss {} is up to date", st.current),
+                    };
+                    self.overlay.notice(&text, st.error.is_some());
+                }
+                self.publish();
+            }
+            UpdateEv::Progress(p) => {
+                self.updater.on_progress(p);
+                self.publish();
+            }
+            UpdateEv::Downloaded(r) => {
+                if let Err(e) = self.updater.on_downloaded(r) {
+                    self.notice("error", &format!("Update failed: {}", e.lines().next().unwrap_or("")));
+                }
+                self.publish();
+            }
         }
     }
 
@@ -1706,11 +1802,56 @@ impl App {
                 reply.ok(json!(true));
             }
             "logs.path" => reply.ok(json!(fluss_core::paths::logs_dir().display().to_string())),
+            "update.status" => reply.ok(serde_json::to_value(self.updater.status(self.cfg.general.check_updates)).unwrap_or_default()),
+            "update.check" => {
+                self.updater.check(&self.tx, Some(reply));
+                self.publish();
+            }
+            "update.install" => {
+                let reopen = params.get("reopen").and_then(|v| v.as_bool()).unwrap_or(false);
+                match self.updater.install(&self.tx, reopen) {
+                    Ok(v) => {
+                        reply.ok(json!({ "version": v }));
+                        self.publish();
+                    }
+                    Err(e) => reply.err(&e),
+                }
+            }
+            "update.skip" => {
+                // No `version` skips the latest; `version: null` clears the skip.
+                let v = match params.get("version") {
+                    Some(Value::Null) => None,
+                    Some(Value::String(s)) => Some(s.clone()),
+                    _ => self.updater.latest_version(),
+                };
+                self.updater.skip(v);
+                reply.ok(json!(true));
+                self.publish();
+            }
             "daemon.quit" => {
                 reply.ok(json!(true));
                 self.quit = true;
             }
             other => reply.err(&format!("unknown method `{other}`")),
+        }
+    }
+}
+
+/// A settings file that exists but can't be parsed is moved aside before defaults
+/// are used, so the next save can't destroy it. Returns what to tell the user about.
+fn set_aside(path: &std::path::Path, what: &'static str, err: &str) -> Option<&'static str> {
+    log::error!("{what}: {err}");
+    if std::fs::read(path).is_err() {
+        return None; // unreadable right now (locked?), not damaged: leave it alone
+    }
+    match fluss_core::paths::quarantine(path) {
+        Ok(to) => {
+            log::warn!("{what}: kept the damaged file as {}", to.display());
+            Some(what)
+        }
+        Err(e) => {
+            log::error!("{what}: could not move the damaged file aside: {e}");
+            None
         }
     }
 }

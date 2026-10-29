@@ -37,11 +37,13 @@ pub struct General {
     pub sound_volume: u8,
     /// Keep a short in-memory history of recent dictations (never written to disk).
     pub history: bool,
+    /// Look for new versions in the background (twice a day). Nothing is installed without asking.
+    pub check_updates: bool,
 }
 
 impl Default for General {
     fn default() -> Self {
-        Self { autostart: true, autostart_delay_s: 4, onboarded: false, sounds: true, sound_volume: 45, history: true }
+        Self { autostart: true, autostart_delay_s: 4, onboarded: false, sounds: true, sound_volume: 45, history: true, check_updates: true }
     }
 }
 

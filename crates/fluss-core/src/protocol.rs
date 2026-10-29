@@ -21,6 +21,9 @@
 //! - `history.list` / `history.clear`
 //! - `popup.context` (rule popup prefill) / `popup.closed`
 //! - `autostart.set {enabled}`
+//! - `update.status` -> [`UpdateStatus`] / `update.check` -> [`UpdateStatus`] once the check finished /
+//!   `update.install {reopen?}` (download, verify, run the installer, quit) / `update.skip {version?}`
+//!   (`version: null` un-skips). Progress and results arrive as `status` events (`Status.update`).
 //! - `ui.open {page?}` / `daemon.quit` / `logs.path`
 
 use serde::{Deserialize, Serialize};
@@ -133,6 +136,57 @@ pub struct Status {
     pub config_path: String,
     pub data_path: String,
     pub hotkeys: HotkeyStatus,
+    #[serde(default)]
+    pub install: InstallInfo,
+    #[serde(default)]
+    pub update: UpdateStatus,
+}
+
+/// Where the running daemon came from.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct InstallInfo {
+    /// `installed` (by the installer), `dev` (a cargo build) or `portable`.
+    pub kind: String,
+    /// Directory of the running executable.
+    pub dir: String,
+    /// What the installer registered, if Fluss is installed for this user.
+    #[serde(default)]
+    pub registered_dir: Option<String>,
+    #[serde(default)]
+    pub registered_version: Option<String>,
+}
+
+/// Update check and download state.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct UpdateStatus {
+    pub current: String,
+    /// Newest released version, once known.
+    #[serde(default)]
+    pub latest: Option<String>,
+    /// `latest` is newer than `current`.
+    pub available: bool,
+    /// This version is below the supported minimum: updating is strongly recommended.
+    pub required: bool,
+    /// The user chose to skip `latest` (no reminders; still listed on the About page).
+    pub skipped: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub notes_url: Option<String>,
+    /// Unix ms of the last successful check.
+    #[serde(default)]
+    pub checked_at: Option<u64>,
+    pub checking: bool,
+    /// Download progress 0..1 while an update downloads.
+    #[serde(default)]
+    pub downloading: Option<f32>,
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Automatic checks are on.
+    pub auto: bool,
+    /// This run is the first after an update from that version.
+    #[serde(default)]
+    pub updated_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

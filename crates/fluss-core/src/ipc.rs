@@ -90,6 +90,16 @@ impl Client {
         }
     }
 
+    /// [`Client::call`] that gives up after `timeout` (a hung daemon must not hang the caller).
+    pub fn call_timeout(mut self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let method = method.to_string();
+        std::thread::spawn(move || {
+            let _ = tx.send(self.call(&method, params));
+        });
+        rx.recv_timeout(timeout).map_err(|_| anyhow!("Fluss did not answer within {} s", timeout.as_secs()))?
+    }
+
     /// Subscribe to events; then use [`Client::read_message`] in a loop.
     pub fn subscribe(&mut self) -> Result<()> {
         self.call("subscribe", Value::Null).map(|_| ())

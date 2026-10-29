@@ -1195,6 +1195,7 @@ dependencies = [
  "fluss-core",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1226,6 +1227,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "sha2",
  "tiny-skia",
  "tray-icon 0.26.1",
  "ureq",

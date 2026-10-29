@@ -5,12 +5,15 @@ pub mod chunk;
 pub mod config;
 pub mod continuation;
 pub mod hotkey;
+pub mod install;
 pub mod ipc;
 pub mod models;
 pub mod paths;
 pub mod protocol;
 pub mod rules;
 pub mod text;
+pub mod update;
+pub mod version;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_NAME: &str = "Fluss";

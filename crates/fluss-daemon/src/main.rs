@@ -10,12 +10,14 @@ mod engine;
 mod hotkeys;
 mod inject;
 mod ipc_server;
+mod lifecycle;
 mod logging;
 mod overlay;
 mod platform;
 mod provision;
 mod sounds;
 mod tray;
+mod updater;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -40,12 +42,20 @@ fn main() {
         }
         return;
     }
+    // --autostart: started at sign-in (model load is delayed a little).
+    // --background: started by the installer after an update. Neither opens a window.
     let autostart = args.iter().any(|a| a == "--autostart");
+    let quiet = autostart || args.iter().any(|a| a == "--background");
     logging::init();
 
     // Single instance: the IPC endpoint is the lock.
-    let Some(listener) = claim_endpoint(autostart) else { return };
-    log::info!("Fluss {} starting (pid {}, autostart: {autostart})", fluss_core::VERSION, std::process::id());
+    let Some(listener) = claim_endpoint(quiet) else { return };
+    log::info!(
+        "Fluss {} starting (pid {}, {})",
+        fluss_core::VERSION,
+        std::process::id(),
+        args.iter().find(|a| a.starts_with("--")).map(String::as_str).unwrap_or("manual start")
+    );
     platform::init_process();
 
     let (tx, rx) = crossbeam_channel::unbounded();
@@ -71,7 +81,7 @@ fn main() {
         .expect("spawn controller");
 
     let first_run = !fluss_core::config::Config::load().map(|c| c.general.onboarded).unwrap_or(false);
-    if first_run && !autostart {
+    if first_run && !quiet {
         platform::open_ui(&[]);
     }
     tray::run_main_loop(tray_rx, tx, quit);
@@ -83,7 +93,7 @@ fn main() {
 /// Take the IPC endpoint, or hand over to the daemon that has it. A daemon
 /// that is still shutting down (or hung) holds the endpoint without answering:
 /// wait for it, then stop it, instead of exiting silently.
-fn claim_endpoint(autostart: bool) -> Option<interprocess::local_socket::Listener> {
+fn claim_endpoint(quiet: bool) -> Option<interprocess::local_socket::Listener> {
     let start = std::time::Instant::now();
     let mut killed = false;
     loop {
@@ -92,7 +102,7 @@ fn claim_endpoint(autostart: bool) -> Option<interprocess::local_socket::Listene
             Err(e) => {
                 if let Ok(mut c) = fluss_core::ipc::Client::connect() {
                     // Already running: a manual launch means "show me Fluss".
-                    if !autostart {
+                    if !quiet {
                         let _ = c.call("ui.open", serde_json::json!({}));
                     }
                     return None;

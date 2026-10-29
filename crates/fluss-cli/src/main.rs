@@ -1,5 +1,7 @@
 //! `fluss` — command line control for Fluss.
 
+mod setup;
+
 use std::io::{IsTerminal, Write};
 use std::time::Duration;
 
@@ -7,7 +9,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use fluss_core::config::Config;
 use fluss_core::ipc::Client;
-use fluss_core::protocol::{HistoryItem, InstallProgress, Message, ModelPhase, Status};
+use fluss_core::protocol::{HistoryItem, InstallProgress, Message, ModelPhase, Status, UpdateStatus};
 use fluss_core::rules::{RuleSet, SearchHit};
 use serde_json::{json, Value};
 
@@ -100,6 +102,23 @@ enum Cmd {
     Autostart { state: OnOff },
     /// Check that everything is set up correctly.
     Doctor,
+    /// Check for a new version and install it (Fluss restarts by itself).
+    Update {
+        /// Only check, don't offer to install.
+        #[arg(long)]
+        check: bool,
+        /// Install the latest version without asking.
+        #[arg(long, conflicts_with_all = ["check", "skip"])]
+        install: bool,
+        /// Stop reminding me about the latest version.
+        #[arg(long, conflicts_with = "check")]
+        skip: bool,
+    },
+    /// Remove Fluss from this computer (runs the uninstaller; it asks whether to delete your settings and models).
+    Uninstall,
+    /// Installer helpers.
+    #[command(subcommand, hide = true)]
+    Setup(SetupCmd),
     /// Open the quick "add a word" popup (same as the shortcut).
     Popup,
     /// Call any daemon method directly (advanced; see the protocol docs):
@@ -109,6 +128,14 @@ enum Cmd {
         /// JSON params.
         params: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum SetupCmd {
+    /// Put this folder on the user's PATH.
+    PathAdd,
+    /// Take this folder off the user's PATH.
+    PathRemove,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -238,9 +265,50 @@ fn start_daemon() -> Result<Client> {
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0000_0008 | 0x0000_0200);
+        // The daemon outlives us. If it inherited our stdout/stderr (a pipe when a script
+        // or the installer captures output), the reader would wait for it to exit.
+        use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
+        use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+        for h in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            unsafe {
+                SetHandleInformation(GetStdHandle(h), HANDLE_FLAG_INHERIT, 0);
+            }
+        }
     }
     cmd.spawn().with_context(|| format!("starting {}", daemon_exe().display()))?;
     Client::connect_wait(Duration::from_secs(10))
+}
+
+/// Ask the daemon to quit and wait until it is gone. Never hangs: a daemon that
+/// doesn't answer is reported (the installer runs this before replacing files).
+fn stop_daemon() -> Result<bool> {
+    let Ok(c) = Client::connect() else { return Ok(false) };
+    let _ = c.call_timeout("daemon.quit", Value::Null, Duration::from_secs(3));
+    let deadline = std::time::Instant::now() + Duration::from_secs(6);
+    while std::time::Instant::now() < deadline {
+        if Client::connect().is_err() {
+            return Ok(true);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    bail!("Fluss did not stop. End `fluss-daemon.exe` in Task Manager, then try again.")
+}
+
+/// The background app runs a different version than this command (an update
+/// replaced the files but the old process kept running, or a dev build is mixed in).
+fn version_skew(st: &Status) -> Option<String> {
+    (st.version != fluss_core::VERSION).then(|| format!("the background app is v{} but this command is v{} → fluss restart", st.version, fluss_core::VERSION))
+}
+
+fn update_line(u: &UpdateStatus) -> Option<String> {
+    let v = u.latest.as_deref()?;
+    if u.required {
+        Some(paint(&format!("v{v} available; this version is no longer supported → fluss update"), "31"))
+    } else if u.available && !u.skipped {
+        Some(paint(&format!("v{v} available → fluss update"), "33"))
+    } else {
+        None
+    }
 }
 
 fn print_json(v: &Value) {
@@ -258,27 +326,18 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Cmd::Stop => {
-            match Client::connect() {
-                Ok(mut c) => {
-                    c.call("daemon.quit", Value::Null)?;
-                    println!("Fluss stopped.");
-                }
-                Err(_) => println!("Fluss is not running."),
+            if stop_daemon()? {
+                println!("Fluss stopped.");
+            } else {
+                println!("Fluss is not running.");
             }
             Ok(())
         }
         Cmd::Restart => {
-            if let Ok(mut c) = Client::connect() {
-                let _ = c.call("daemon.quit", Value::Null);
-                for _ in 0..50 {
-                    std::thread::sleep(Duration::from_millis(100));
-                    if Client::connect().is_err() {
-                        break;
-                    }
-                }
-            }
-            start_daemon()?;
-            println!("Fluss restarted.");
+            stop_daemon()?;
+            let mut c = start_daemon()?;
+            let st: Status = serde_json::from_value(c.call("status", Value::Null)?)?;
+            println!("Fluss {} restarted.", st.version);
             Ok(())
         }
         Cmd::Open { page } => {
@@ -402,6 +461,10 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Cmd::Doctor => doctor(),
+        Cmd::Update { check, install, skip } => update(check, install, skip, json_out),
+        Cmd::Uninstall => uninstall(),
+        Cmd::Setup(SetupCmd::PathAdd) => setup::path(true),
+        Cmd::Setup(SetupCmd::PathRemove) => setup::path(false),
         Cmd::Ipc { method, params } => {
             let p: Value = match params {
                 Some(s) => serde_json::from_str(&s).context("params must be JSON")?,
@@ -429,7 +492,12 @@ fn phase_label(p: ModelPhase) -> String {
 }
 
 fn print_status(st: &Status) {
-    println!("{}  {}", bold("Fluss"), dim(&format!("v{} · pid {} · up {}", st.version, st.pid, human_secs(st.uptime_s))));
+    let kind = match st.install.kind.as_str() {
+        "dev" => " · dev build",
+        "portable" => " · portable",
+        _ => "",
+    };
+    println!("{}  {}", bold("Fluss"), dim(&format!("v{}{kind} · pid {} · up {}", st.version, st.pid, human_secs(st.uptime_s))));
     let state = match st.phase {
         fluss_core::protocol::DictationPhase::Idle => "idle".to_string(),
         fluss_core::protocol::DictationPhase::Listening => paint("listening", "31"),
@@ -469,6 +537,12 @@ fn print_status(st: &Status) {
     );
     let lat = st.stats.median_latency_ms.map(|m| format!(" · median {m} ms after release")).unwrap_or_default();
     println!("  session    {} dictations · {} words{}", st.stats.dictations, st.stats.words, lat);
+    if let Some(u) = update_line(&st.update) {
+        println!("  update     {u}");
+    }
+    if let Some(w) = version_skew(st) {
+        println!("  {}    {w}", paint("note", "33"));
+    }
 }
 
 fn human_secs(s: u64) -> String {
@@ -835,6 +909,82 @@ fn model(m: ModelCmd, json_out: bool) -> Result<()> {
     }
 }
 
+fn update(check_only: bool, install: bool, skip: bool, json_out: bool) -> Result<()> {
+    let mut c = start_daemon()?;
+    if skip {
+        c.call("update.skip", Value::Null)?;
+        println!("Fluss won't remind you about this version. `fluss update` still installs it.");
+        return Ok(());
+    }
+    eprintln!("{}", dim("Checking for updates…"));
+    let u: UpdateStatus = serde_json::from_value(c.call("update.check", Value::Null)?)?;
+    if json_out {
+        print_json(&serde_json::to_value(&u)?);
+        return Ok(());
+    }
+    if let Some(e) = &u.error {
+        bail!("couldn't check for updates: {e}");
+    }
+    let latest = u.latest.clone().unwrap_or_default();
+    if !u.available {
+        println!("Fluss {} is up to date.", u.current);
+        return Ok(());
+    }
+    println!("{} {} → {}", bold("Update available:"), u.current, paint(&latest, "32"));
+    if let Some(m) = &u.message {
+        println!("  {m}");
+    }
+    if let Some(n) = &u.notes_url {
+        println!("  {}", dim(&format!("What's new: {n}")));
+    }
+    if check_only || !(install || confirm("Install it now? Fluss restarts by itself.")?) {
+        return Ok(());
+    }
+    // Watch progress on a second connection; the install call returns right away.
+    let mut events = connect()?;
+    events.subscribe()?;
+    c.call("update.install", Value::Null)?;
+    // Events are ordered: the daemon publishes "downloading" right after accepting the
+    // install, so an error seen after that belongs to this download (not an older one).
+    let mut started = false;
+    let mut shown = -1i32;
+    loop {
+        match events.read_message() {
+            Ok(Message::Event { event, data }) if event == "status" => {
+                let st: UpdateStatus = serde_json::from_value(data["update"].clone()).unwrap_or_default();
+                if let Some(p) = st.downloading {
+                    started = true;
+                    let pct = (p * 100.0) as i32;
+                    if pct / 10 != shown / 10 {
+                        shown = pct;
+                        eprint!("\r  downloading {pct:>3}%");
+                    }
+                } else if let Some(e) = st.error.filter(|_| started) {
+                    eprintln!();
+                    bail!("{e}");
+                }
+            }
+            Ok(Message::Event { event, .. }) if event == "quit" => break,
+            Ok(_) => {}
+            Err(_) => break, // the daemon quit to let the installer run
+        }
+    }
+    eprintln!();
+    println!("Installing Fluss {latest}. It starts again by itself when done.");
+    Ok(())
+}
+
+fn uninstall() -> Result<()> {
+    let dir = std::env::current_exe()?.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+    let un = dir.join("uninstall.exe");
+    if !un.exists() {
+        bail!("this copy of Fluss ({}) wasn't set up by the installer, so there is nothing to uninstall. Delete the folder to remove it.", dir.display());
+    }
+    std::process::Command::new(&un).spawn().with_context(|| format!("starting {}", un.display()))?;
+    println!("The uninstaller is open. It asks whether to delete your settings, dictionary and models too.");
+    Ok(())
+}
+
 fn doctor() -> Result<()> {
     let ok = |s: &str| println!("  {} {s}", paint("✓", "32"));
     let bad = |s: &str| println!("  {} {s}", paint("✗", "31"));
@@ -852,6 +1002,18 @@ fn doctor() -> Result<()> {
         Ok(mut c) => {
             ok("background app is running");
             let st: Status = serde_json::from_value(c.call("status", Value::Null)?)?;
+            match version_skew(&st) {
+                Some(w) => warn(&w),
+                None => ok(&format!("version {} ({})", st.version, if st.install.kind.is_empty() { "unknown install" } else { &st.install.kind })),
+            }
+            if let (Some(dir), "portable" | "dev") = (&st.install.registered_dir, st.install.kind.as_str()) {
+                warn(&format!("running from {} while Fluss {} is installed in {dir}", st.install.dir, st.install.registered_version.as_deref().unwrap_or("")));
+            }
+            match update_line(&st.update) {
+                Some(u) => warn(&u),
+                None if st.update.checked_at.is_some() => ok("no updates pending"),
+                None => {}
+            }
             match st.model.phase {
                 ModelPhase::Ready => ok(&format!("{} is loaded on {}", st.model.name, st.model.device)),
                 ModelPhase::NotInstalled => bad(&format!("{} is not installed → fluss model install", st.model.name)),

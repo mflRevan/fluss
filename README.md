@@ -41,6 +41,10 @@
 
 Download `Fluss_x.y.z_x64-setup.exe` from [Releases](https://github.com/mflRevan/fluss/releases) or [the website](https://fluss-mauve.vercel.app) and run it. No admin rights are needed. Onboarding walks you through choosing a microphone and a model, then lets you try it out.
 
+**Updates.** Fluss checks for a new version twice a day (turn it off on the About page or with `fluss config set general.check_updates false`). When one is out, the tray menu and the sidebar say so. Install it from About, the tray or `fluss update`: the installer is downloaded, checked against its SHA-256, and run in the background. Fluss comes back by itself on the new version. Before the first start of a new version, your settings and dictionary are copied to `%LOCALAPPDATA%\Fluss\backups\<old version>`. A settings file that can't be read is kept as `config.toml.broken-<time>` instead of being overwritten.
+
+**Uninstall** from Windows Settings → Apps, or with `fluss uninstall`. Your settings, dictionary and downloaded models stay unless you tick *Delete the application data*. The sign-in entry and the `fluss` PATH entry are always removed.
+
 ## Command line
 
 ```text
@@ -52,6 +56,8 @@ fluss model list|use|install|load|unload
 fluss transcribe meeting.wav
 fluss dictate start|stop|cancel
 fluss history | logs -f | devices | doctor | autostart on|off
+fluss update [--check|--install|--skip]
+fluss uninstall
 fluss ipc <method> [json]        call any daemon method directly
 ```
 
@@ -100,8 +106,12 @@ Its "Try with your mic" runs Phonon 2.5 English in the browser on WebGPU: the pa
 Hugging Face once and rebuilds the weights for ONNX Runtime Web from it; only weight-less graphs are hosted
 (`site/phonon/`, made by [`scripts/phonon-web/build.py`](scripts/phonon-web/build.py)).
 
-Releasing: push a version tag (`git tag v0.1.0; git push origin v0.1.0`). The *Release* workflow builds the installer,
-publishes a GitHub release and redeploys the website to Vercel (needs the `VERCEL_TOKEN` repo secret).
+Releasing: `powershell -File scripts\bump-version.ps1 0.2.0` (the workspace `Cargo.toml` is the only source of the
+version), commit, then push a tag (`git tag v0.2.0; git push origin main v0.2.0`). The *Release* workflow checks the tag
+matches the version, builds the installer, publishes a GitHub release, writes the in-app update feed
+(`site/update.json`: version, URL, SHA-256) and redeploys the website to Vercel (needs the `VERCEL_TOKEN` repo secret).
+To tell users of old versions they must update, set `min_supported` (and optionally `message`) in `site/update.json`.
+`FLUSS_UPDATE_URL` points a build at another feed for testing (`http://` is accepted only on localhost).
 
 Design language: [`docs/DESIGN.md`](docs/DESIGN.md) — black and gold, Licht Serif / Geist / Geist Mono.
 

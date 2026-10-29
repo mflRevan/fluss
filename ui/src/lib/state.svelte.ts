@@ -1,6 +1,6 @@
 // Global reactive state shared by every screen.
 
-import { call, onConnection, onEvent } from "./backend";
+import { call, invoke, onConnection, onEvent } from "./backend";
 import type { Config, InstallProgress, Status } from "./types";
 
 export type Page = "home" | "dictionary" | "shortcuts" | "model" | "audio" | "text" | "output" | "advanced" | "about";
@@ -22,6 +22,8 @@ export const app = $state({
   toasts: [] as Toast[],
   rulesVersion: 0,
   historyVersion: 0,
+  /** Version of this settings app (the daemon reports its own in `status.version`). */
+  uiVersion: "",
   /** Prefill for the in-app add-rule sheet (from history). */
   ruleDraft: null as { heard: string; target: string } | null,
 });
@@ -77,6 +79,7 @@ export function startState() {
     switch (e.event) {
       case "status":
         app.status = e.data;
+        announceUpdate();
         break;
       case "config":
         app.config = e.data;
@@ -112,9 +115,25 @@ export async function refresh() {
     app.status = status;
     app.config = config;
     app.connected = true;
+    app.uiVersion ||= (await invoke<string>("app_version").catch(() => undefined)) ?? status.version;
+    announceUpdate();
   } catch {
     app.connected = false;
   }
+}
+
+let announced = false;
+/** Once per window: say so when this is the first run after an update. */
+function announceUpdate() {
+  const from = app.status?.update?.updated_from;
+  if (announced || !from) return;
+  announced = true;
+  toast(`Updated from ${from} to ${app.status!.version}`, "success", 5000);
+}
+
+/** The background app and this window are different versions (restart to line them up). */
+export function versionSkew(): boolean {
+  return !!app.uiVersion && !!app.status && app.status.version !== app.uiVersion;
 }
 
 /** Fluss is dark-only; this just applies the motion preference. */

@@ -239,29 +239,86 @@ mod win {
     }
 
     const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    use fluss_core::install::{RUN_VALUE, UNINSTALL_KEY};
+
+    /// A REG_SZ / REG_EXPAND_SZ value under HKCU, unexpanded.
+    fn reg_string(key: &str, value: &str) -> Option<String> {
+        unsafe {
+            let (k, v) = (HSTRING::from(key), HSTRING::from(value));
+            let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND;
+            let mut len = 0u32;
+            RegGetValueW(HKEY_CURRENT_USER, &k, &v, flags, None, None, Some(&mut len)).ok().ok()?;
+            let mut buf = vec![0u16; (len as usize).div_ceil(2)];
+            RegGetValueW(HKEY_CURRENT_USER, &k, &v, flags, None, Some(buf.as_mut_ptr() as *mut _), Some(&mut len)).ok().ok()?;
+            Some(String::from_utf16_lossy(&buf).trim_end_matches('\0').to_string())
+        }
+    }
+
+    /// (install dir, version) registered by the installer for this user.
+    pub fn registered_install() -> Option<(String, String)> {
+        let dir = reg_string(UNINSTALL_KEY, "InstallLocation")?.trim_matches('"').to_string();
+        let ver = reg_string(UNINSTALL_KEY, "DisplayVersion").unwrap_or_default();
+        (!dir.is_empty()).then_some((dir, ver))
+    }
+
+    fn autostart_command() -> anyhow::Result<String> {
+        Ok(format!("\"{}\" --autostart", std::env::current_exe()?.display()))
+    }
 
     pub fn set_autostart(enabled: bool) -> anyhow::Result<()> {
-        let exe = std::env::current_exe()?;
+        if crate::lifecycle::isolated() {
+            log::info!("autostart: not changed by an isolated (FLUSS_HOME) instance");
+            return Ok(());
+        }
         unsafe {
             if enabled {
-                let val = format!("\"{}\" --autostart", exe.display());
-                let wide: Vec<u16> = val.encode_utf16().chain(std::iter::once(0)).collect();
+                let wide: Vec<u16> = autostart_command()?.encode_utf16().chain(std::iter::once(0)).collect();
                 RegSetKeyValueW(
                     HKEY_CURRENT_USER,
                     &HSTRING::from(RUN_KEY),
-                    &HSTRING::from("Fluss"),
+                    &HSTRING::from(RUN_VALUE),
                     REG_SZ.0,
                     Some(wide.as_ptr() as *const _),
                     (wide.len() * 2) as u32,
                 )
                 .ok()?;
             } else {
-                let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, &HSTRING::from(RUN_KEY), &HSTRING::from("Fluss"));
+                let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, &HSTRING::from(RUN_KEY), &HSTRING::from(RUN_VALUE));
             }
         }
         Ok(())
     }
 
+    /// Point the sign-in entry at this executable if it points anywhere else.
+    pub fn ensure_autostart() -> anyhow::Result<()> {
+        let want = autostart_command()?;
+        let have = reg_string(RUN_KEY, RUN_VALUE);
+        if have.as_deref() != Some(want.as_str()) {
+            log::info!("autostart: {} -> {want}", have.as_deref().unwrap_or("(none)"));
+            set_autostart(true)?;
+        }
+        Ok(())
+    }
+
+    /// Start a program that must outlive Fluss (an update installer): detached,
+    /// and outside any job object Fluss itself may be running in.
+    pub fn spawn_independent(exe: &Path, args: &[&str]) -> std::io::Result<()> {
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+        let run = |flags: u32| {
+            std::process::Command::new(exe)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .creation_flags(flags)
+                .spawn()
+                .map(drop)
+        };
+        // Breaking away is refused when our job doesn't allow it; plain detached is the fallback.
+        run(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB).or_else(|_| run(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP))
+    }
 }
 
 #[cfg(not(windows))]
@@ -285,7 +342,19 @@ mod other {
         std::process::exit(code)
     }
     pub fn kill_stale_daemons() {}
+    pub fn registered_install() -> Option<(String, String)> {
+        None
+    }
+    pub fn ensure_autostart() -> anyhow::Result<()> {
+        set_autostart(true)
+    }
+    pub fn spawn_independent(exe: &Path, args: &[&str]) -> std::io::Result<()> {
+        std::process::Command::new(exe).args(args).spawn().map(drop)
+    }
     pub fn set_autostart(enabled: bool) -> anyhow::Result<()> {
+        if crate::lifecycle::isolated() {
+            return Ok(());
+        }
         let exe = std::env::current_exe()?;
         #[cfg(target_os = "linux")]
         {

@@ -15,6 +15,9 @@ pub enum TrayCmd {
     LoadModel,
     UnloadModel,
     PauseHotkeys(bool),
+    /// Open the About page, where the update can be installed.
+    Update,
+    CheckUpdates,
     Quit,
 }
 
@@ -155,7 +158,11 @@ fn tooltip(st: &Status) -> String {
         DictationPhase::Finishing => "Typing · ",
         DictationPhase::Idle => "",
     };
-    format!("Fluss — {mode}{model}\nHold {} to dictate", st.hotkeys.push_to_talk)
+    let update = match &st.update.latest {
+        Some(v) if st.update.available && !st.update.skipped => format!("\nUpdate available: {v}"),
+        _ => String::new(),
+    };
+    format!("Fluss — {mode}{model}\nHold {} to dictate{update}", st.hotkeys.push_to_talk)
 }
 
 #[cfg(windows)]
@@ -174,6 +181,7 @@ pub fn run_main_loop(rx: Receiver<Status>, ev: Sender<Ev>, quit: std::sync::Arc<
     let load = MenuItem::new("Load model now", true, None);
     let unload = MenuItem::new("Unload model (free memory)", true, None);
     let pause = CheckMenuItem::new("Pause shortcuts", true, false, None);
+    let update = MenuItem::new("Check for updates", true, None);
     let quit_item = MenuItem::new("Quit Fluss", true, None);
     let _ = menu.append_items(&[
         &header,
@@ -187,6 +195,7 @@ pub fn run_main_loop(rx: Receiver<Status>, ev: Sender<Ev>, quit: std::sync::Arc<
         &unload,
         &pause,
         &PredefinedMenuItem::separator(),
+        &update,
         &quit_item,
     ]);
     let mut current = Look::Off;
@@ -203,6 +212,7 @@ pub fn run_main_loop(rx: Receiver<Status>, ev: Sender<Ev>, quit: std::sync::Arc<
     let mut next_try = std::time::Instant::now();
     let mut failures = 0u32;
     let mut last: Option<Status> = None;
+    let mut update_ready = false;
 
     let send = |c: TrayCmd| {
         let _ = ev.send(Ev::Tray(c));
@@ -249,6 +259,8 @@ pub fn run_main_loop(rx: Receiver<Status>, ev: Sender<Ev>, quit: std::sync::Arc<
                 send(TrayCmd::UnloadModel);
             } else if id == *pause.id() {
                 send(TrayCmd::PauseHotkeys(pause.is_checked()));
+            } else if id == *update.id() {
+                send(if update_ready { TrayCmd::Update } else { TrayCmd::CheckUpdates });
             } else if id == *quit_item.id() {
                 send(TrayCmd::Quit);
             }
@@ -282,6 +294,16 @@ pub fn run_main_loop(rx: Receiver<Status>, ev: Sender<Ev>, quit: std::sync::Arc<
             pause.set_checked(st.hotkeys.paused);
             load.set_enabled(st.model.phase == ModelPhase::Unloaded || st.model.phase == ModelPhase::Error);
             unload.set_enabled(st.model.phase == ModelPhase::Ready);
+            let u = &st.update;
+            update_ready = (u.available && !u.skipped) || u.required;
+            update.set_enabled(!u.checking && u.downloading.is_none());
+            update.set_text(match (&u.latest, u.downloading) {
+                (_, Some(p)) => format!("Downloading update… {:.0}%", p * 100.0),
+                _ if u.checking => "Checking for updates…".into(),
+                (Some(v), _) if u.required => format!("Update required: Fluss {v}…"),
+                (Some(v), _) if update_ready => format!("Update to Fluss {v}…"),
+                _ => "Check for updates".into(),
+            });
         }
     }
 }

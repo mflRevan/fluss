@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { app, type Page } from "../state.svelte";
+  import { app, versionSkew, type Page } from "../state.svelte";
   import Iris, { type IrisMode } from "./Iris.svelte";
   import Logo from "./Logo.svelte";
 
@@ -53,6 +53,16 @@
   );
   const bad = $derived(!app.connected || s?.model.phase === "error" || s?.model.phase === "not-installed");
   const mem = $derived(s?.model.memory_mb ? `${(s.model.memory_mb / 1024).toFixed(1)} GB` : "");
+  // Something about this version needs attention: shown above the status, opens About.
+  const notice = $derived.by(() => {
+    const u = s?.update;
+    if (!app.connected || !u) return null;
+    if (versionSkew()) return { text: "Restart to finish update", bad: true };
+    if (u.downloading != null) return { text: `Updating · ${Math.round(u.downloading * 100)}%`, bad: false };
+    if (u.required) return { text: `Update required · ${u.latest}`, bad: true };
+    if (u.available && !u.skipped) return { text: `Update · ${u.latest}`, bad: false };
+    return null;
+  });
 </script>
 
 <nav class="sidebar">
@@ -77,6 +87,10 @@
     <span class="idx">{index.get("about")}</span>
     <span>About</span>
   </button>
+
+  {#if notice}
+    <button class="upd" class:bad={notice.bad} onclick={() => (app.page = "about")}>◆ {notice.text}</button>
+  {/if}
 
   <div class="status">
     <Iris size={44} {mode} />
@@ -162,6 +176,27 @@
   }
   .grow {
     flex: 1;
+  }
+  .upd {
+    margin: 8px 16px 0;
+    padding: 7px 8px;
+    border: 1px solid var(--gold-dim);
+    background: var(--gold-wash);
+    color: var(--gold);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-align: left;
+    transition: border-color var(--t1) var(--q);
+  }
+  .upd:hover {
+    border-color: var(--gold);
+  }
+  .upd.bad {
+    border-color: var(--danger);
+    background: transparent;
+    color: var(--danger);
   }
   .status {
     display: flex;

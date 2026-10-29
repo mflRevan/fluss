@@ -3,6 +3,7 @@
 // over local IPC and exits when its windows close (unless `ui.keep_warm`).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,6 +14,9 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 const PAGES: &[&str] = &["home", "dictionary", "shortcuts", "model", "audio", "text", "output", "advanced", "about"];
+
+/// We are restarting the daemon ourselves: its `quit` event must not close this app.
+static RESTARTING: AtomicBool = AtomicBool::new(false);
 
 // ---------------------------------------------------------------- daemon connection
 
@@ -98,6 +102,9 @@ fn event_loop(app: AppHandle) {
                         // A warm instance opens the popup straight from the event (no process launch).
                         // The daemon is quitting on purpose: close with it instead of restarting it.
                         if event == "quit" {
+                            if RESTARTING.load(Ordering::SeqCst) {
+                                break;
+                            }
                             quit(&app);
                             return;
                         }
@@ -399,12 +406,45 @@ fn app_quit(app: AppHandle) {
     quit(&app);
 }
 
+#[tauri::command]
+fn app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// Replace the running daemon with the one next to this app (after an update
+/// left an old one running, or a different build was started).
+#[tauri::command]
+async fn restart_daemon(app: AppHandle) -> Result<(), String> {
+    let pool = app.state::<Pool>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        RESTARTING.store(true, Ordering::SeqCst);
+        let res = (|| {
+            pool.0.lock().clear();
+            if let Ok(c) = Client::connect() {
+                let _ = c.call_timeout("daemon.quit", json!({}), Duration::from_secs(3));
+            }
+            let deadline = std::time::Instant::now() + Duration::from_secs(6);
+            while Client::connect().is_ok() {
+                if std::time::Instant::now() > deadline {
+                    return Err("The background app did not stop. End fluss-daemon.exe in Task Manager.".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            connect_or_spawn().map(drop)
+        })();
+        RESTARTING.store(false, Ordering::SeqCst);
+        res
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn main() {
     kill_hung_instances();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| handle_args(app, &argv)))
         .manage(Pool::default())
-        .invoke_handler(tauri::generate_handler![daemon_call, restore_focus, popup_finish, maybe_exit, open_path, app_quit])
+        .invoke_handler(tauri::generate_handler![daemon_call, restore_focus, popup_finish, maybe_exit, open_path, app_quit, app_version, restart_daemon])
         .setup(|app| {
             let handle = app.handle().clone();
             let args: Vec<String> = std::env::args().collect();

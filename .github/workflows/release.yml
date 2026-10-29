@@ -1,9 +1,13 @@
 name: Release
 
-# Push a version tag on main to ship:  git tag v0.1.0 && git push origin v0.1.0
+# Ship:  powershell -File scripts\bump-version.ps1 0.2.0, commit, then
+#        git tag v0.2.0 && git push origin main v0.2.0
+#  - checks the tag matches the version in Cargo.toml
 #  - builds the Windows installer and attaches it to a GitHub release
-#  - deploys site/ to Vercel production (needs the VERCEL_TOKEN repo secret)
+#  - writes site/update.json (the in-app update feed) from that release and
+#    deploys site/ to Vercel production (needs the VERCEL_TOKEN repo secret)
 # The site can also be redeployed on its own: Actions -> Release -> "Run workflow".
+# To mark old versions unsupported, edit min_supported/message in site/update.json.
 on:
   push:
     tags: ["v*"]
@@ -21,9 +25,30 @@ env:
 jobs:
   site:
     name: website (vercel)
+    # After the installer, so the update feed points at a release that exists.
+    needs: installer
+    if: ${{ !cancelled() && (needs.installer.result == 'success' || needs.installer.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Update feed from the latest release
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rel=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest")
+          url=$(jq -r '[.assets[] | select(.name | endswith("_x64-setup.exe"))][0].browser_download_url // empty' <<<"$rel")
+          [ -n "$url" ] || { echo "::error::latest release has no *_x64-setup.exe"; exit 1; }
+          sha=$(jq -r '[.assets[] | select(.name | endswith("_x64-setup.exe"))][0].digest // "" | ltrimstr("sha256:")' <<<"$rel")
+          [ -n "$sha" ] || sha=$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)
+          # min_supported and message are hand-edited in the committed file and kept as they are.
+          jq --argjson rel "$rel" --arg url "$url" --arg sha "$sha" '
+            ([$rel.assets[] | select(.name | endswith("_x64-setup.exe"))][0]) as $a
+            | .version = ($rel.tag_name | ltrimstr("v"))
+            | .url = $url | .sha256 = $sha | .size = $a.size
+            | .notes = $rel.html_url | .date = $rel.published_at[0:10]' update.json > update.next
+          mv update.next update.json
+          cat update.json
       - name: Deploy to production
         working-directory: site
         env:
@@ -42,6 +67,11 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Tag matches the version
+        shell: bash
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $v (run scripts/bump-version.ps1)"; exit 1; }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4

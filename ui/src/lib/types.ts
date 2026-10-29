@@ -33,6 +33,33 @@ export interface Status {
   config_path: string;
   data_path: string;
   hotkeys: { push_to_talk: string; hands_free: string; add_rule: string; paused: boolean };
+  install: InstallInfo;
+  update: UpdateStatus;
+}
+
+export interface InstallInfo {
+  /** "installed" | "dev" | "portable" */
+  kind: string;
+  dir: string;
+  registered_dir: string | null;
+  registered_version: string | null;
+}
+
+export interface UpdateStatus {
+  current: string;
+  latest: string | null;
+  available: boolean;
+  /** This version is below the supported minimum. */
+  required: boolean;
+  skipped: boolean;
+  message: string | null;
+  notes_url: string | null;
+  checked_at: number | null;
+  checking: boolean;
+  downloading: number | null;
+  error: string | null;
+  auto: boolean;
+  updated_from: string | null;
 }
 
 export interface Config {
@@ -43,6 +70,7 @@ export interface Config {
     sounds: boolean;
     sound_volume: number;
     history: boolean;
+    check_updates: boolean;
   };
   model: {
     id: string;
